@@ -1,0 +1,896 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>B&M Assistant Chat</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+      :root {
+        --panel-bg: rgba(255, 255, 255, 0.88);
+        --panel-border: rgba(148, 163, 184, 0.35);
+        --accent: #2563eb;
+        --accent-soft: rgba(37, 99, 235, 0.12);
+        --surface: #f5f7fb;
+      }
+
+      body {
+        background: linear-gradient(135deg, #f8fbff 0%, #eef2ff 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-size: 0.95rem;
+        color: #0f172a;
+      }
+
+      main.container {
+        max-width: 860px;
+      }
+
+      .shell {
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        box-shadow: 0 18px 46px rgba(15, 23, 42, 0.08);
+        backdrop-filter: blur(10px);
+        overflow: hidden;
+      }
+
+      .header {
+        padding: 20px 24px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(248, 250, 252, 0.65);
+      }
+
+      .header h1 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        margin: 0;
+        color: #1f2937;
+      }
+
+      .header .status {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      .shell section {
+        padding: 0;
+      }
+
+      .messages { height: 42vh; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; background: rgba(248, 250, 252, 0.7); }
+      .msg { padding: 12px 16px; border-radius: 14px; max-width: 82%; white-space: pre-wrap; line-height: 1.45; font-size: 0.9rem; }
+      .user { align-self: flex-end; background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.25); color: #1d4ed8; }
+      .assistant { align-self: flex-start; background: #ffffff; border: 1px solid rgba(148, 163, 184, 0.3); color: #1e293b; }
+      .inputBar { display: flex; gap: 12px; border-top: 1px solid rgba(148, 163, 184, 0.25); padding: 16px 20px; align-items: center; background: rgba(248, 250, 252, 0.8); }
+      .inputBar input { flex: 1; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.45); font-size: 0.95rem; background: #fff; color: #111827; }
+      .inputBar input::placeholder { color: rgba(71, 85, 105, 0.8); }
+      .inputBar button { padding: 12px 18px; border-radius: 12px; border: none; background: var(--accent); color: white; font-weight: 600; cursor: pointer; box-shadow: 0 12px 18px rgba(37, 99, 235, 0.22); }
+      .inputBar button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 999px; }
+      .authWrapper { padding: 32px; display: flex; flex-direction: column; gap: 20px; background: rgba(255, 255, 255, 0.85); border-radius: 18px; border: 1px solid rgba(148, 163, 184, 0.25); box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08); }
+      .authWrapper h2 { margin: 0; font-size: 20px; font-weight: 600; }
+      .authWrapper p { margin: 0; color: #4b5563; font-size: 14px; }
+      .authWrapper form { display: flex; flex-direction: column; gap: 12px; }
+      .authWrapper label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #111; }
+      .authWrapper input { padding: 12px; border-radius: 10px; border: 1px solid #d1d5db; font-size: 16px; }
+      .authActions { display: flex; align-items: center; gap: 12px; }
+      .authToggle { background: none; border: none; color: #2563eb; cursor: pointer; padding: 0; font-size: 14px; font-weight: 500; }
+      .error { color: #dc2626; font-size: 14px; }
+      .chatMeta { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e6e8eb; font-size: 14px; background: #f9fafb; }
+      .chatMeta button { font-size: 14px; }
+      .rememberRow { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #111; }
+      .rememberRow input { width: 16px; height: 16px; }
+      .roleTabs { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 20px; border-bottom: 1px solid rgba(148, 163, 184, 0.2); background: rgba(248, 250, 252, 0.65); }
+      .roleTabs button { border: none; background: rgba(148, 163, 184, 0.18); color: #334155; border-radius: 999px; padding: 8px 16px; font-size: 0.9rem; cursor: pointer; transition: all 0.2s ease; }
+      .roleTabs button:hover { background: rgba(37, 99, 235, 0.15); color: #1d4ed8; }
+      .roleTabs button.active { background: var(--accent); color: #fff; box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25); }
+      .statePanel { padding: 16px 20px; border-bottom: 1px solid rgba(148, 163, 184, 0.2); background: rgba(255, 255, 255, 0.7); display: flex; flex-direction: column; gap: 8px; font-size: 0.92rem; color: #334155; }
+      .statePanel strong { font-weight: 600; }
+      .practiceControls, .coachControls { padding: 18px 20px; border-bottom: 1px solid rgba(148, 163, 184, 0.2); display: flex; flex-direction: column; gap: 16px; background: rgba(255, 255, 255, 0.85); }
+      .practiceRow, .coachRow { display: flex; flex-wrap: wrap; gap: 12px; }
+      .practiceRow label, .coachRow label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #1f2933; }
+      .practiceRow select, .coachRow input, .coachRow textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.45); font-size: 0.9rem; min-width: 180px; background: #f9fafc; }
+      .coachRow textarea { min-height: 60px; resize: vertical; }
+      .practiceActions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+      .transcriptBox { max-height: 160px; overflow-y: auto; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 12px; background: rgba(248, 250, 252, 0.9); font-size: 0.88rem; line-height: 1.5; }
+      .transcriptBox div { margin-bottom: 4px; }
+      .pillButton { border: none; background: rgba(148, 163, 184, 0.25); padding: 8px 14px; border-radius: 999px; font-size: 0.85rem; cursor: pointer; transition: background 0.2s ease; color: #475569; }
+      .pillButton:hover { background: rgba(37, 99, 235, 0.18); color: #1d4ed8; }
+      .pillButton.danger { color: #b91c1c; background: rgba(248, 113, 113, 0.18); }
+    </style>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <article class="shell">
+        <header class="header">
+          <h1>Business &amp; Mission Studio</h1>
+          <span class="status" id="status">Booting…</span>
+        </header>
+        <section>
+          <div id="root"></div>
+        </section>
+      </article>
+    </main>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+
+      const AUTH_COOKIE = 'bm_user';
+      const ROLE_DEFS = [
+        { id: 'controller', label: 'Controller', description: 'Plan the session and route to the right agent.' },
+        { id: 'trainer', label: 'Trainer', description: 'Teach theology, principles, and skills.' },
+        { id: 'practicer', label: 'Practicer', description: 'Roleplay real conversations with seekers.' },
+        { id: 'coach', label: 'Coach', description: 'Give constructive feedback and next steps.' },
+      ];
+
+      const ROLE_MAP = Object.fromEntries(ROLE_DEFS.map(role => [role.id, role]));
+
+      const PRACTICE_SCENARIOS = [
+        { value: 'shopkeeper', label: 'Shopkeeper at the mall' },
+        { value: 'coworker_lunch', label: 'Co-worker at lunch' },
+        { value: 'neighbor', label: 'Neighbor at the mailbox' },
+      ];
+
+      const LIGHT_OPTIONS = [
+        { value: 'green_light', label: 'Green Light (open & eager)' },
+        { value: 'yellow_light', label: 'Yellow Light (curious but cautious)' },
+        { value: 'red_light', label: 'Red Light (resistant)' },
+      ];
+
+      function decodeCookieValue(raw) {
+        if (!raw) return null;
+        try {
+          let normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+          while (normalized.length % 4 !== 0) normalized += '=';
+          const json = atob(normalized);
+          return JSON.parse(json);
+        } catch (err) {
+          console.warn('Failed to decode remember cookie', err);
+          return null;
+        }
+      }
+
+      function getRememberedUser() {
+        if (typeof document === 'undefined') return null;
+        const parts = document.cookie.split(';').map(part => part.trim());
+        for (const part of parts) {
+          if (part.startsWith(`${AUTH_COOKIE}=`)) {
+            const value = part.slice(AUTH_COOKIE.length + 1);
+            return decodeCookieValue(value);
+          }
+        }
+        return null;
+      }
+
+      function ChatApp() {
+        const [user, setUser] = useState(null);
+        const [authMode, setAuthMode] = useState('login');
+        const [authForm, setAuthForm] = useState({ email: '', password: '', fullName: '' });
+        const [authLoading, setAuthLoading] = useState(false);
+        const [authError, setAuthError] = useState('');
+        const [rememberMe, setRememberMe] = useState(false);
+
+        const [activeRole, setActiveRole] = useState('controller');
+        const [messagesByRole, setMessagesByRole] = useState(() => {
+          const initial = {};
+          ROLE_DEFS.forEach(role => { initial[role.id] = []; });
+          return initial;
+        });
+        const [stateSnapshot, setStateSnapshot] = useState(null);
+        const [input, setInput] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const [practiceConfig, setPracticeConfig] = useState({
+          scenario: PRACTICE_SCENARIOS[0].value,
+          difficulty: 'yellow_light',
+          outcome: 'yellow_light',
+        });
+        const [practiceTranscript, setPracticeTranscript] = useState([]);
+        const [practiceCompletedFlag, setPracticeCompletedFlag] = useState(false);
+
+        const [trainerTopic, setTrainerTopic] = useState('');
+        const [trainerMarkComplete, setTrainerMarkComplete] = useState(false);
+        const [trainerNotes, setTrainerNotes] = useState('');
+
+        const [coachNextSteps, setCoachNextSteps] = useState('');
+        const [coachRubric, setCoachRubric] = useState({
+          clarity: '',
+          listening: '',
+          sensitivity: '',
+          invitation: '',
+        });
+
+        const scrollerRef = useRef(null);
+
+        const activeRoleDef = ROLE_MAP[activeRole] || ROLE_DEFS[0];
+
+        useEffect(() => {
+          const remembered = getRememberedUser();
+          if (remembered && remembered.email) {
+            setUser({ email: remembered.email, full_name: remembered.full_name || '' });
+            setRememberMe(true);
+          }
+        }, []);
+
+        useEffect(() => {
+          const pill = document.getElementById('status');
+          if (!pill) return;
+          if (!user) {
+            pill.textContent = 'Sign in required';
+            return;
+          }
+          if (loading) {
+            pill.textContent = 'Working…';
+            return;
+          }
+          pill.textContent = `${activeRoleDef.label} ready`;
+        }, [user, loading, activeRoleDef]);
+
+        useEffect(() => {
+          if (scrollerRef.current) {
+            scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
+          }
+        }, [messagesByRole, activeRole]);
+
+        useEffect(() => {
+          if (!user) {
+            resetSessionState();
+            return;
+          }
+
+          const firstName = (() => {
+            if (user.full_name && user.full_name.trim()) {
+              return user.full_name.trim().split(' ')[0];
+            }
+            return user.email.split('@')[0];
+          })();
+
+          const initialMessages = {};
+          ROLE_DEFS.forEach(role => { initialMessages[role.id] = []; });
+          initialMessages.controller = [
+            { role: 'assistant', content: `Hi ${firstName}! Welcome back.` }
+          ];
+
+          resetSessionState(initialMessages);
+          setActiveRole('controller');
+
+          (async () => {
+            await refreshState(user.email);
+            await runAgentMessage(
+              'controller',
+              `${firstName} just started a new session and would like to decide what to do next. Please welcome them and offer training, practice, or coaching options.`,
+              { skipUserEcho: true }
+            );
+          })();
+        }, [user?.email]);
+
+        function resetSessionState(initialMessages) {
+          setMessagesByRole(() => {
+            if (initialMessages) {
+              return initialMessages;
+            }
+            const initial = {};
+            ROLE_DEFS.forEach(role => { initial[role.id] = []; });
+            return initial;
+          });
+          setStateSnapshot(null);
+          setPracticeTranscript([]);
+          setPracticeCompletedFlag(false);
+          setCoachNextSteps('');
+          setCoachRubric({ clarity: '', listening: '', sensitivity: '', invitation: '' });
+          setTrainerTopic('');
+          setTrainerNotes('');
+          setTrainerMarkComplete(false);
+          setPracticeConfig({
+            scenario: PRACTICE_SCENARIOS[0].value,
+            difficulty: 'yellow_light',
+            outcome: 'yellow_light',
+          });
+        }
+
+        async function refreshState(userId) {
+          if (!userId) return;
+          try {
+            const res = await fetch(`/api/agent/state?user_id=${encodeURIComponent(userId)}`, { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const data = await res.json().catch(() => null);
+            if (data && data.state) {
+              setStateSnapshot(data.state);
+            }
+          } catch (err) {
+            console.warn('Failed to refresh state', err);
+          }
+        }
+
+        async function handleAuthSubmit(event) {
+          event.preventDefault();
+          if (authLoading) return;
+
+          const email = authForm.email.trim().toLowerCase();
+          const password = authForm.password;
+          const fullName = authForm.fullName.trim();
+
+          if (!email || !password) {
+            setAuthError('Email and password are required.');
+            return;
+          }
+          if (authMode === 'register' && password.length < 8) {
+            setAuthError('Password must be at least 8 characters long.');
+            return;
+          }
+
+          setAuthLoading(true);
+          setAuthError('');
+
+          const endpoint = authMode === 'register' ? '/api/register' : '/api/login';
+          const payload = { email, password };
+          if (authMode === 'register') {
+            payload.full_name = fullName;
+          }
+          if (authMode === 'login') {
+            payload.remember_me = rememberMe;
+          }
+
+          try {
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify(payload)
+            });
+
+            const result = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              const detail = result.detail || 'Authentication failed. Please try again.';
+              throw new Error(detail);
+            }
+
+            setUser({ email: result.email, full_name: result.full_name });
+            setAuthForm({ email: '', password: '', fullName: '' });
+            setRememberMe(authMode === 'login' ? rememberMe : false);
+          } catch (err) {
+            setAuthError(err.message || 'Authentication failed.');
+          } finally {
+            setAuthLoading(false);
+          }
+        }
+
+        function handleToggleMode() {
+          setAuthMode(prev => prev === 'login' ? 'register' : 'login');
+          setAuthError('');
+          if (authMode === 'login') {
+            setRememberMe(false);
+          }
+        }
+
+        async function handleLogout() {
+          try {
+            await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+          } catch (err) {
+            console.warn('Logout request failed', err);
+          }
+          setUser(null);
+          setInput('');
+          setRememberMe(false);
+          resetSessionState();
+          setActiveRole('controller');
+        }
+
+        function formatRole(role) {
+          if (!role) return '';
+          if (role === 'user') return 'You';
+          if (role === 'assistant' || role === 'bot') return 'Agent';
+          return role.charAt(0).toUpperCase() + role.slice(1);
+        }
+
+        function handlePracticeConfigChange(key, value) {
+          setPracticeConfig(prev => ({ ...prev, [key]: value }));
+          if (key === 'scenario') {
+            resetPracticeSession();
+          }
+        }
+
+        function resetPracticeSession() {
+          setPracticeTranscript([]);
+          setPracticeCompletedFlag(false);
+          setMessagesByRole(prev => ({ ...prev, practicer: [] }));
+        }
+
+        async function runAgentMessage(roleId, message, options = {}) {
+          if (!user) return;
+          const outgoing = typeof message === 'string' ? message : '';
+          const trimmed = outgoing.trim();
+          const skipUserEcho = options.skipUserEcho || false;
+          const displayText = trimmed || outgoing;
+          if (!skipUserEcho && !displayText) {
+            return;
+          }
+
+          if (!skipUserEcho) {
+            setMessagesByRole(prev => ({
+              ...prev,
+              [roleId]: [...prev[roleId], { role: 'user', content: displayText }]
+            }));
+          }
+
+          setLoading(true);
+
+          try {
+            let endpoint = '';
+            let body = {};
+
+            if (roleId === 'controller') {
+              endpoint = '/api/agent/controller';
+              body = { user_id: user.email, message: displayText };
+            } else if (roleId === 'trainer') {
+              endpoint = '/api/agent/trainer';
+              body = {
+                user_id: user.email,
+                message: displayText,
+                topic: trainerTopic || undefined,
+                mark_complete: trainerMarkComplete || undefined,
+                notes: trainerNotes || undefined,
+              };
+            } else if (roleId === 'practicer') {
+              if (!displayText) {
+                setLoading(false);
+                return;
+              }
+              endpoint = '/api/agent/practicer';
+              body = {
+                user_id: user.email,
+                message: displayText,
+                scenario: practiceConfig.scenario,
+                difficulty: practiceConfig.difficulty,
+                outcome: practiceConfig.outcome,
+                transcript: practiceTranscript,
+                session_completed: options.sessionCompletedFlag ?? practiceCompletedFlag,
+              };
+            } else if (roleId === 'coach') {
+              if (!practiceTranscript.length) {
+                throw new Error('Run a practice session before requesting coaching feedback.');
+              }
+              endpoint = '/api/agent/coach';
+              const rubricPayload = Object.entries(coachRubric).reduce((acc, [key, value]) => {
+                if (value && value.trim()) {
+                  acc[key] = value.trim();
+                }
+                return acc;
+              }, {});
+              const previous = (stateSnapshot?.coaching_feedback || []).map(item => item.feedback).filter(Boolean);
+              body = {
+                user_id: user.email,
+                message: displayText,
+                transcript: practiceTranscript,
+                previous_feedback: previous,
+                rubric: Object.keys(rubricPayload).length ? rubricPayload : undefined,
+                next_steps: coachNextSteps || undefined,
+              };
+            } else {
+              endpoint = '/api/chat';
+              body = { user_id: user.email, message: displayText };
+            }
+
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify(body)
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              const detail = data.detail || `HTTP ${res.status}`;
+              throw new Error(detail);
+            }
+
+            const assistantText = data.reply || 'No response received.';
+            setMessagesByRole(prev => ({
+              ...prev,
+              [roleId]: [...prev[roleId], { role: 'assistant', content: assistantText }]
+            }));
+
+            if (data.state) {
+              setStateSnapshot(data.state);
+            }
+
+            if (roleId === 'controller') {
+              const routeTo = data.metadata && data.metadata.route_to;
+              if (routeTo && ROLE_MAP[routeTo]) {
+                setActiveRole(routeTo);
+                setMessagesByRole(prev => {
+                  const currentMessages = prev[routeTo] || [];
+                  if (currentMessages.length > 0) {
+                    return prev;
+                  }
+                  return {
+                    ...prev,
+                    [routeTo]: [{
+                      role: 'assistant',
+                      content: `${ROLE_MAP[routeTo].label} ready. Let me know how to proceed.`,
+                    }],
+                  };
+                });
+              }
+            }
+
+            if (data.state?.current_role && ROLE_MAP[data.state.current_role]) {
+              const preferredRole = data.state.current_role;
+              if (preferredRole !== activeRole) {
+                setActiveRole(preferredRole);
+                setMessagesByRole(prev => {
+                  const currentMessages = prev[preferredRole] || [];
+                  if (currentMessages.length === 0) {
+                    return {
+                      ...prev,
+                      [preferredRole]: [{
+                        role: 'assistant',
+                        content: `${ROLE_MAP[preferredRole].label} ready when you are.`,
+                      }],
+                    };
+                  }
+                  return prev;
+                });
+              }
+            }
+
+            if (roleId === 'trainer' && trainerMarkComplete) {
+              setTrainerMarkComplete(false);
+            }
+
+            if (roleId === 'practicer') {
+              const transcriptMeta = (data.metadata && data.metadata.transcript) || [
+                ...practiceTranscript,
+                { role: 'user', content: displayText },
+                { role: 'assistant', content: assistantText }
+              ];
+              const normalizedTranscript = transcriptMeta.map(turn => ({
+                role: turn.role === 'bot' ? 'assistant' : turn.role,
+                content: turn.content,
+              }));
+              setPracticeTranscript(normalizedTranscript);
+              if (options.sessionCompletedFlag || data.metadata?.session_completed) {
+                setPracticeCompletedFlag(false);
+              }
+            }
+
+            if (roleId === 'coach' && coachNextSteps) {
+              setCoachNextSteps('');
+            }
+          } catch (err) {
+            setMessagesByRole(prev => ({
+              ...prev,
+              [roleId]: [...prev[roleId], { role: 'assistant', content: `Error: ${err.message}` }]
+            }));
+          } finally {
+            setLoading(false);
+          }
+        }
+
+        async function handleSend() {
+          const content = input.trim();
+          if (!content) return;
+          if (activeRole === 'practicer') {
+            await runAgentMessage('practicer', content, { sessionCompletedFlag: practiceCompletedFlag });
+          } else {
+            await runAgentMessage(activeRole, content);
+          }
+          setInput('');
+        }
+
+        function onKeyDown(e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+          }
+        }
+
+        function renderRoleTabs() {
+          return (
+            <div className="roleTabs">
+              {ROLE_DEFS.map(role => (
+                <button
+                  key={role.id}
+                  className={activeRole === role.id ? 'active' : ''}
+                  onClick={() => {
+                    setActiveRole(role.id);
+                    setInput('');
+                  }}
+                  disabled={loading && activeRole === role.id}
+                >
+                  {role.label}
+                </button>
+              ))}
+            </div>
+          );
+        }
+
+        function renderStateSummary() {
+          const training = stateSnapshot?.training_progress || {};
+          const completedTopics = Array.isArray(training.completed_topics) ? training.completed_topics : [];
+          const practiceHistory = stateSnapshot?.practice_history || [];
+          const coachingHistory = stateSnapshot?.coaching_feedback || [];
+          return (
+            <div className="statePanel">
+              <div><strong>{activeRoleDef.label}</strong>: {activeRoleDef.description}</div>
+              <div><strong>Training:</strong> {completedTopics.length ? completedTopics.join(', ') : 'No topics completed yet.'}</div>
+              <div><strong>In progress:</strong> {training.in_progress_topic || 'None'}</div>
+              {training.notes ? <div><strong>Notes:</strong> {training.notes}</div> : null}
+              {practiceHistory.length > 0 ? (
+                <div>
+                  <strong>Last practice:</strong> {practiceHistory[practiceHistory.length - 1].scenario || 'Unknown'} · {practiceHistory[practiceHistory.length - 1].difficulty || 'n/a'} · Outcome {practiceHistory[practiceHistory.length - 1].outcome || 'n/a'}
+                </div>
+              ) : null}
+              {coachingHistory.length > 0 ? (
+                <div><strong>Latest coaching:</strong> {coachingHistory[coachingHistory.length - 1].feedback}</div>
+              ) : null}
+            </div>
+          );
+        }
+
+        function renderTrainerControls() {
+          return (
+            <div className="practiceControls">
+              <div className="coachRow">
+                <label>
+                  Topic or module
+                  <input
+                    value={trainerTopic}
+                    onChange={e => setTrainerTopic(e.target.value)}
+                    placeholder="e.g. yellow_light"
+                  />
+                </label>
+                <label>
+                  Notes to keep
+                  <input
+                    value={trainerNotes}
+                    onChange={e => setTrainerNotes(e.target.value)}
+                    placeholder="Optional notes"
+                  />
+                </label>
+                <label className="rememberRow">
+                  <input
+                    type="checkbox"
+                    checked={trainerMarkComplete}
+                    onChange={e => setTrainerMarkComplete(e.target.checked)}
+                  />
+                  Mark topic complete after this response
+                </label>
+              </div>
+            </div>
+          );
+        }
+
+        function renderPracticeControls() {
+          return (
+            <div className="practiceControls">
+              <div className="practiceRow">
+                <label>
+                  Scenario
+                  <select
+                    value={practiceConfig.scenario}
+                    onChange={e => handlePracticeConfigChange('scenario', e.target.value)}
+                  >
+                    {PRACTICE_SCENARIOS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Difficulty
+                  <select
+                    value={practiceConfig.difficulty}
+                    onChange={e => handlePracticeConfigChange('difficulty', e.target.value)}
+                  >
+                    {LIGHT_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Target outcome
+                  <select
+                    value={practiceConfig.outcome}
+                    onChange={e => handlePracticeConfigChange('outcome', e.target.value)}
+                  >
+                    {LIGHT_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="practiceActions">
+                <label className="rememberRow">
+                  <input
+                    type="checkbox"
+                    checked={practiceCompletedFlag}
+                    onChange={e => setPracticeCompletedFlag(e.target.checked)}
+                  />
+                  Mark session complete on next response
+                </label>
+                <button type="button" className="pillButton danger" onClick={resetPracticeSession}>
+                  Reset practice transcript
+                </button>
+              </div>
+              {practiceTranscript.length > 0 && (
+                <div>
+                  <strong style={{ fontSize: '13px' }}>Transcript preview</strong>
+                  <div className="transcriptBox">
+                    {practiceTranscript.map((turn, idx) => (
+                      <div key={idx}><strong>{formatRole(turn.role)}:</strong> {turn.content}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        function renderCoachControls() {
+          const previous = (stateSnapshot?.coaching_feedback || []).slice(-3);
+          return (
+            <div className="coachControls">
+              <div className="coachRow">
+                <label>
+                  Next steps suggestion
+                  <input
+                    value={coachNextSteps}
+                    onChange={e => setCoachNextSteps(e.target.value)}
+                    placeholder="Optional note"
+                  />
+                </label>
+              </div>
+              <div className="coachRow">
+                {Object.keys(coachRubric).map(key => (
+                  <label key={key} style={{ flex: '1 1 200px' }}>
+                    {key.charAt(0).toUpperCase() + key.slice(1)}
+                    <textarea
+                      value={coachRubric[key]}
+                      onChange={e => setCoachRubric(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder="Optional notes"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div>
+                <strong style={{ fontSize: '13px' }}>Practice transcript</strong>
+                <div className="transcriptBox">
+                  {practiceTranscript.length ? practiceTranscript.map((turn, idx) => (
+                    <div key={idx}><strong>{formatRole(turn.role)}:</strong> {turn.content}</div>
+                  )) : <div>No practice transcript yet. Run a practice session first.</div>}
+                </div>
+              </div>
+              {previous.length > 0 && (
+                <div className="transcriptBox" style={{ background: '#eef2ff' }}>
+                  <strong style={{ fontSize: '13px' }}>Recent feedback</strong>
+                  {previous.map((item, idx) => (
+                    <div key={idx}>{item.feedback}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (!user) {
+          return (
+            <div className="authWrapper">
+              <h2>{authMode === 'login' ? 'Sign in to continue' : 'Create your account'}</h2>
+              <p>We log registrations and chat activity to the shared Google Sheet you configured.</p>
+              <form onSubmit={handleAuthSubmit}>
+                {authMode === 'register' && (
+                  <label>
+                    Full name (optional)
+                    <input
+                      type="text"
+                      name="fullName"
+                      value={authForm.fullName}
+                      onChange={e => setAuthForm(prev => ({ ...prev, fullName: e.target.value }))}
+                      placeholder="e.g. Alex Smith"
+                      autoComplete="name"
+                    />
+                  </label>
+                )}
+                <label>
+                  Email
+                  <input
+                    type="email"
+                    name="email"
+                    value={authForm.email}
+                    onChange={e => setAuthForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    required
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    name="password"
+                    value={authForm.password}
+                    onChange={e => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder="Minimum 8 characters"
+                    autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                    required
+                  />
+                </label>
+                {authMode === 'login' && (
+                  <label className="rememberRow">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={e => setRememberMe(e.target.checked)}
+                    />
+                    Remember me
+                  </label>
+                )}
+                {authError && <div className="error">{authError}</div>}
+                <div className="authActions">
+                  <button type="submit" disabled={authLoading}>
+                    {authLoading ? 'Please wait…' : (authMode === 'register' ? 'Register' : 'Sign in')}
+                  </button>
+                  <button type="button" className="authToggle" onClick={handleToggleMode}>
+                    {authMode === 'login' ? 'Need an account? Register →' : 'Have an account? Sign in →'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          );
+        }
+
+        const activeMessages = messagesByRole[activeRole] || [];
+
+        return (
+          <>
+            <div className="chatMeta">
+              <div>Signed in as {(user.full_name && user.full_name.trim()) || user.email}</div>
+              <button className="secondary" onClick={handleLogout}>Log out</button>
+            </div>
+            {renderRoleTabs()}
+            {renderStateSummary()}
+            {activeRole === 'trainer' && renderTrainerControls()}
+            {activeRole === 'practicer' && renderPracticeControls()}
+            {activeRole === 'coach' && renderCoachControls()}
+            <div className="messages" ref={scrollerRef}>
+              {activeMessages.length === 0 ? (
+                <div className="msg assistant">Start the conversation with the {activeRoleDef.label.toLowerCase()}.</div>
+              ) : activeMessages.map((m, idx) => (
+                <div key={idx} className={`msg ${m.role === 'user' ? 'user' : 'assistant'}`}>
+                  {m.content}
+                </div>
+              ))}
+            </div>
+            <div className="inputBar">
+              <input
+                placeholder={loading ? 'One moment…' : `Message the ${activeRoleDef.label}`}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={loading}
+              />
+              <button onClick={handleSend} disabled={loading || !input.trim()}>
+                {loading ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<ChatApp />);
+    </script>
+  </body>
+</html>
