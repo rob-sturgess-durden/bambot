@@ -1,0 +1,366 @@
+﻿Evangelism Bot Design and Content
+
+
+Summary
+Goal of this project is to build a AI bot that helps users learn how to do effective evangelism, trains them in the skills, and allows them to practice and get evaluated in a non-judgmental context that takes away the perceived awkwardness of roleplay.  
+
+
+Design
+Role 1: Trainer  - Here’s how you do it.  “It’s helpful to have a 1 minute and 3 minute testimony.  Would you like me to help you build one?”
+Role 2: Practicer - Let me roleplay and give you feedback. “I’m a shopkeeper you got into a conversation with at the mall, try to find out if I’m a spiritual person.  Starting point…you’ve just asked me what’s the best selling shirt”
+Role 3: Coach - Performance feedback and next steps for implementation “You’re ready to go, try going to a shopping mall and talking to shopkeepers who are bored”
+
+
+
+
+Opening Line:
+“What would you like to work on today?  
+1. Training - Would you like to learn the skills to be an effective Evangelist?
+2. Practice - Would you like to roleplay different scenarios to try out your mad skills?”
+3. Coaching - Would you like to ask me next steps on what to do now that you’re a pro?
+
+
+[Note: probably good to have a disclaimer that this trains in a way we believe is most effective but will not line up with some other well known principles.  We find this is the easiest way and we think it’s the most effective.]
+Training
+“Okay, let’s train!  This is way easier than you probably think! It really helps to learn some key skills.  Don’t worry, I’m going to show you everything I know!
+
+
+Here’s some places we can go, let me know what you want to do:
+
+
+1. Understand the theology behind effective outreach?
+2. Key principles about people far from God.
+3. Go to skills for these types of conversations
+4. Dos and don’ts (we suggest)
+
+
+Understand the theology behind effective outreach?
+[John 6 principles. Can do an inductive type learning using the bot!  Show passages and ask questions.]  Basically, the only people that come to Jesus are the ones that the Father is drawing.  So your job is not to convince anyone, RATHER, it is explore where they are spiritually and find people who are already asking/looking for spiritual answers.  Then share your story with them.  Great case study: Woman at the well John 4.
+
+
+Key principles about people far from God
+People far from God:
+* There are only 3 positions for someone far from God:
+   1. Not interested right now through you.  This person may be interested through someone else later today, or through you tomorrow.  But for now they are signaling they are not wanting to talk to you about spiritual things.  We call this a Red Light. 
+   2. Someone the Father is drawing so completely to Jesus, that they are ready to make that decision right now even though they just met you!  They really do exist!  We call this a Green Light.
+   3. Someone who is spiritually curious but will not make a decision right now, but they are interested in your story and the idea of learning more.  They will meet up with you or invite you to meet up with them and their family/friends.  We call this a Yellow Light!
+
+
+People far from God can only be in one of these 3 positions.  You need to know how to deal with each of them!
+
+
+Red Lights
+When we meet resistance, our tendency can sometimes be to push harder.  We recommend against this (unless you feel a distinct calling to do so by God).  It’s people who do this that tend to give Christians a bad name.  Maybe why some people can call us Bible Bashers!
+
+
+We think 1 Cor 13 and 1 Peter 3 explain that this is not the right way to do things.
+
+
+We have learned that if you can be loving and respectful when someone indicates they are a red light, that they will be more open to you and others in the future. 
+
+However, if we Bash them with our bibles, not only will they be less open to you, but also to others.  
+
+
+Sadly, many new Christians sometimes in their enthusiasm try too hard with their friends and family when they are getting Red Light signals.  That usually doesn’t end well—although God can redeem all!
+
+
+TEST: Talk me through what a Red Light will look like and what you should do as a response.
+
+
+Green Light
+Again, you might not believe me that these exist, but we think there may be as many as 1 in 20 of these in any random population of people far from God.  
+
+John 6 seems to imply that the Father is drawing people to Jesus all the time.  You just need to find them!  In this situation, the person will keep giving you feedback that they want to know more or that the Gospel sounds awesome.
+
+
+Here’s the key point: They don’t know how to ask you what to do next
+
+
+You need to be able to say something simple, but really important.  
+
+
+How about:  “Would you like to pray to receive Christ right now?”  or you could say something less churchy.  Like “Would you like to fix your relationship with God right now?”
+
+
+The key skill here is to ask a question that brings the other person to a point of decision.
+
+
+TEST: Talk me through what a Green Light will look like and what you should do as a response.
+Yellow Light
+Yellow lights are the people you think of as being open to the Gospel.  They are the ones who seem really interested when you talk about it with them.  They seem unusually curious.  The Father is drawing them, but they are unsure about next steps.  They don’t know how much to trust you.  They want to explore safely.
+
+
+Here you will share many of the skills you learn elsewhere in the training.  Here’s the key way to help that person move forward:  You need to ask them if they’d like to learn more.
+
+
+Key step: Offer an invitation to learn more.
+
+For example, you might say “Hey, this has been a great conversation, would you like to meet up for a spiritual discussion group where we read some stuff and discuss it?”  
+Unchurched vs Dechurched
+Another really helpful distinction is that people far from God who are looking for God (i.e. Green or Yellow Lights) also fall into another couple of categories.
+
+
+They are either Unchurched—i.e. Have never read the bible never been to church before. Ever.  [Digression for the chat…would you like to know more about why they need to be handled differently?]
+
+
+Or Dechurched.  These are people who may have gone to Chrisitian school and had chapel, or raised in a nominally Christian home.  Maybe they were CEO Christians…Christmas and Easter Only.  The point being, that they are familiar with how church works and it won’t be so radically new for them as it will be for unchurched.
+Why is this important?  You can probably invite a Dechurched yellow light to attend church with you, but you might want to start with a local Bible Study with an Unchurched person?
+
+
+[Digression for chat: Can I explain why church might not work for an Unchurched person more?]
+Go to skills for these types of conversations
+[To develop further…may have the bot help form these for them by asking them questions?]
+
+
+[Transition/Segue from regular conversation to spiritual one]
+
+
+Bot Questions:  Give me a list of questions you don’t mind strangers asking you?  E.g. what’s your name, where are you from, what do you do on the weekends, are you a fan of…
+
+
+[3 minute Testimony]
+Bot Questions:  Tell me how you got serious about Jesus?  What was your life like before that?  What has it been like since that? How is your life different now?
+
+
+[1 Minute testimony]
+Bot questions: In 5 sentences or less, tell me what was the most important part of your journey on how you came to follow Jesus?
+
+
+[Story of answered prayer]
+Tell me an exciting story that happened to you or someone you know where God answered prayers in a surprising or dramatic way.
+
+
+[Invitation skills]
+Bot Questions: What are some things that you would invite people to if they wanted to learn more about Jesus.  What are some less traditional ways you could help them if those items you just listed were not an option.
+
+
+Dos and don’ts (we suggest)
+Here are some hot tips to help your conversations go more smoothly:
+
+
+1. Try to ask a lot of questions about the other person early in the conversation.  Why?  Because once they have talked about themselves for a long time it’s normal for you to talk about yourself.  So bring up your values.
+2. Try not to use Christian talk.  Find a way to talk about your faith like you would your favourite food or toy or gadget.  E.g. instead of saying, “I knew I needed the propitiating sacrifice of my Lord and Saviour”, maybe say, ‘I just knew I needed help to become the person God wants me to be.’
+3. Try to keep your comments short.  No sermons please!  Try to keep each story less than 3 mins or ask their permission first to have more time to tell a longer story.  But make that story worth it!
+
+
+Etc.etc.
+
+
+
+
+Practice
+[Here we just need to build some scenarios for people to practice the skills they acquired in training.  Have some be red, yellow, green, churched, unchurched.]
+
+
+Let’s roleplay conversations.  Here are some scenarios you can choose.  Try one that is realistic for you based on where you are in life:
+
+
+Shop Worker that is helping you when the shop isn’t busy.
+
+
+Another parent at some kind of social when you’ve met
+
+
+A team mate on a sports team at the drinks after a game or practice
+
+
+A taxi or Uber driver on a long drive
+
+
+A coworker who has come to you for mentoring or advice
+
+
+A market stall owner at a Farmers Market who isn’t busy
+
+
+A neighbour you meet while you’re walking the dog.
+Coaching
+[Here we offer feedback on certain scenarios but we also offer next level training.  Will need to train the bot on common questions from people who are learning. I can use my ministry team members to get examples.]
+
+
+Coaching topics:
+How to run a Bible Study good for Green Lights.
+
+
+How to run a Bible Study good for Yellow Lights.
+
+
+How to create ‘Connect’ Strategies that lead to good ‘Share’ Strategies. (Social action steps that can lead to people being open to the Gospel.  ‘People don’t care what you know until they know that you care’)
+
+
+Where to go to practice your new skills.  (Parks, Malls, Markets, door knocking etc.)
+
+
+What to do if you don’t have time to disciple the people that respond to the Gospel? (Partner with other organisations that like to disciple but don’t do evangelism.)
+
+
+Who has God put in my life to share with?  (Oikos mapping)
+
+
+Coaching Evaluations:
+* Tell me your 3 min testimony so I can help give you feedback.
+* Tell me your 1 min testimony so I can help give you feedback.
+* …repeat for all the skills trained on
+
+
+
+
+Bot Structure
+
+
+Here we try to bring some structure and logic to the flow of knowledge to help design the bot’s requirements and the user experience.
+
+
+Open Question for User:
+What would you like to work on:
+1. Learning / Training (We suggest you start here.)
+2. Pracitice / Apply the learning in role-play that allows you to prepare for the real world.  Talk to me!
+3. Coaching / ask me questions about how to apply the learning and skills you’ve acquired.  (We suggest you do this after completing 1 and 2)
+
+
+If you ever want to return here just tell me “Main Menu” and I’ll come back here.
+If you want to go back to the previous menu at any time just say “previous menu”[a]
+1. Training
+Opening Statement: You are welcome to bounce around, but the information below is structured to learn in order.  Give it a go!  
+
+
+What would you like to learn today?
+1. Big Picture.  Theology / Concepts / Why?
+2. Types of people and what to do with each
+3. Skills that are useful to have and practice
+4. Dos and Don’ts (we suggest)
+
+
+1.Big Picture/Theology/Concepts
+Here we ground you in What would you like to learn about first?
+1. Core myths that need to be unmasked
+2. A Key passage that makes all the world of difference to how it feels to share the gospel.
+3. Four stages of gospel movement
+4. Traffic Light 
+5. Putting it all together
+
+
+A.Core Myths Training
+A concept that is so common in the Church we want to clear some common misconceptions up.  There are two things here to explore.  Which one do you want?
+1. The concept that God is Sovereign so do I need to actually do any evangelism at all?
+2. What do you think about “Preach the Gospel at all times and if necessary use words”?
+1.God is Sovereign
+[Knowledge base info below. Instruct AI to learn this and frame this as a teacher and philosopher and evangelical apologist bible expert who can answer any questions around this concept. AI should present this in an educational question and answer format that enables the user to become proficient in all this information.  Be super encouraging and ask any questions that help drive this home.  The main focus is to help the user feel that speaking and talking is the way God intended the Gospel to reach people.]
+ 
+We believe God IS Sovereign.  The problem is as finite beings who are in the middle of time we don’t know how Sovereignty works.  We can often get stuck in loops like: If God is all powerful and can do anything, can He make a weight he cannot lift?
+
+
+We are not here to help you with the philosophy gymnastics of these concepts.  Rather, we want to help clarify what the bible says and how it applies to DOING evangelism.  
+
+
+Many of the teachings that lead people to believe that God’s plan is so absolute that we don’t need to share the gospel with anyone come from the writings of St Paul.  
+
+
+But how did St Paul live?  He travelled from place to place to bring the Gospel to people!
+
+
+1 Corinthians 9:16, 19, 22–23 –
+* “Woe to me if I do not preach the gospel!”
+
+* “I have made myself a servant to all, that I might win more of them… I have become all things to all people, that by all means I might save some. I do it all for the sake of the gospel.”
+Romans 1:14–15 – “I am under obligation both to Greeks and to barbarians… So I am eager to preach the gospel to you also who are in Rome.”
+
+Romans 15:20 – “I make it my ambition to preach the gospel, not where Christ has already been named, lest I build on someone else’s foundation.”
+
+
+But perhaps the best passage that captures Paul’s vision for how this works is:
+
+
+Romans 10:13–15 – “Everyone who calls on the name of the Lord will be saved… How then will they call on him in whom they have not believed? And how are they to believe in him of whom they have never heard? And how are they to hear without someone preaching? And how are they to preach unless they are sent?”
+
+
+Which of course connects us to what Jesus instructed the disciples to do right before ascending to heaven. 
+
+
+The Great Commission is found in Matthew 28:18–20. Here’s the passage in full (ESV):
+18 And Jesus came and said to them, “All authority in heaven and on earth has been given to me.
+19 Go therefore and make disciples of all nations, baptizing them in the name of the Father and of the Son and of the Holy Spirit,
+20 teaching them to observe all that I have commanded you. And behold, I am with you always, to the end of the age.”
+All this to say, if you want to be successful in evangelism, we suggest you learn to find people far from God and invite them to discover Jesus.  HOW to do that?  Well that’s what we are here to show you!
+
+
+Option: If haven’t completed the other myth: Go to other myths that get in the way?  Or back to Training Menu.  Else go back to Training menu when user ready.
+
+
+2.St Francis and the myth of no words
+[Knowledge base. Same AI instructions as above.]
+
+
+One item that often gets quoted by people who are well meaning but mistaken is the idea that St Francis suggested: Preach the gospel at all times and if necessary use words.
+
+
+St Francis actually never said this.  It’s often used as a way of saying, I just love people and act like a Christian and hope people ask me why.
+
+
+Where we would agree is: “People don’t care what you know, until they know you care!”
+
+
+Loving people and being salt/light and ‘not of this world’ is important.  1 Corinthians 13 talks about how being loving is the supreme act! 
+
+
+However, when it is used as a reason not to initiate, share and talk to those far from God we respectfully disagree.  St Paul did not live that way.
+
+
+We believe: People who are far from God rarely know how to ask you for help to find God!  You have to help them by initiating with them and giving them options.
+
+
+What did St Francis really say?  He actually said: “Nevertheless, let all the brothers preach by their works”  
+
+
+But it’s the context was really important to understand what he is talking about:
+The phrase “Nevertheless, let all the brothers preach by their works” comes from The Earlier Rule (Regula non bullata) of St. Francis of Assisi, Chapter XVII, often titled “Preachers” (circa 1221).
+Here is the context (translated):
+“Let none of the brothers preach contrary to the form and institution of the holy Church or unless he has been permitted by his minister. But let the minister be careful about granting permission, after he has taken counsel with the guardians. Nevertheless, let all the brothers preach by their works.”
+________________
+
+
+Explanation
+   * Context: Francis was deeply wary of unauthorized or arrogant preaching. He wanted brothers to preach only with church permission, emphasizing obedience and humility.
+
+   * Meaning: Even if a friar was not formally licensed to preach sermons, every brother was called to preach by the testimony of his life—through poverty, humility, peace, and charity.
+
+   * Implication: For Francis, holiness of life was the truest proclamation of the Gospel, and often more powerful than words
+So he’s really saying that if you’re a monk and not ordained, you shouldn’t be preaching as an official preacher.  That’s true today in today’s churches!  But every Christian should obey Jesus’ commands in Matt 28 (ESV):
+18 And Jesus came and said to them, “All authority in heaven and on earth has been given to me.
+19 Go therefore and make disciples of all nations, baptizing them in the name of the Father and of the Son and of the Holy Spirit,
+20 teaching them to observe all that I have commanded you. And behold, I am with you always, to the end of the age.”
+—----
+B. A Key passage that makes all the world of difference to how it feels to share the gospel.
+[Knowledge base.  AI Instructions: You are a Bible teacher in the protestant tradition that tells using a story method.  Teach this knowledge base like the script which is from a video.  Help to drive the surprise ending and help the user understand the profound idea of why God drawing people to Jesus changes how you operate as an evangelist from being a debater, to following the other person’s lead.]
+
+
+Can we pull the script from https://mission365.org/training-videos/video-3-drawing-people-to-jesus/ 
+
+
+And add it to this section of the knowledge base?  I can rewrite it if it doesn’t work.
+
+
+  C.Four stages of gospel movement
+[Knowledge base.  AI Instructions: You are a Bible teacher in the protestant tradition that tells using a story method.  Teach this knowledge base like the script which is from a video.  Help to drive the idea that there is a flow of four stages that relate to each other.  If the user can understand the four stages, they can design effective mission, and also know what to do next when someone responds with interest to the gospel.]
+
+
+Can we pull the script from 
+https://mission365.org/training-videos/video-1-overview/
+
+
+And add it to this section of the knowledge base?  I can rewrite it if it doesn’t work.
+
+
+D.Traffic Light 
+[Knowledge base.  AI Instructions: You are a Bible teacher in the protestant tradition that tells using a story method.  Teach this knowledge base like the script which is from a video.  Help to drive the idea it is easy to evangelise when we understand where people are in relation to being drawn to Jesus.]
+
+
+The knowledge base should be from earlier in this document here
+
+
+Also script from here: https://mission365.org/training-videos/video-4-key-missional-concepts/
+
+
+
+
+[a]@rob.sturgessdurden@gmail.com  I'm thinking we can build in menu options to make it clear how users can jump back and forth between menus options.
