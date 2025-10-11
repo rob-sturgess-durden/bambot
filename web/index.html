@@ -99,7 +99,7 @@
       .practiceControls, .coachControls { padding: 18px 20px; border-bottom: 1px solid rgba(148, 163, 184, 0.2); display: flex; flex-direction: column; gap: 16px; background: rgba(255, 255, 255, 0.85); }
       .practiceRow, .coachRow { display: flex; flex-wrap: wrap; gap: 12px; }
       .practiceRow label, .coachRow label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #1f2933; }
-      .practiceRow select, .coachRow input, .coachRow textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.45); font-size: 0.9rem; min-width: 180px; background: #f9fafc; }
+      .practiceRow select, .coachRow input, .coachRow textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.45); font-size: 0.9rem; min-width: 180px; background: #f9fafc; color: #1e293b; }
       .coachRow textarea { min-height: 60px; resize: vertical; }
       .practiceActions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
       .transcriptBox { max-height: 160px; overflow-y: auto; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 12px; padding: 12px; background: rgba(248, 250, 252, 0.9); font-size: 0.88rem; line-height: 1.5; }
@@ -107,6 +107,8 @@
       .pillButton { border: none; background: rgba(148, 163, 184, 0.25); padding: 8px 14px; border-radius: 999px; font-size: 0.85rem; cursor: pointer; transition: background 0.2s ease; color: #475569; }
       .pillButton:hover { background: rgba(37, 99, 235, 0.18); color: #1d4ed8; }
       .pillButton.danger { color: #b91c1c; background: rgba(248, 113, 113, 0.18); }
+      .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255, 255, 255, 0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -646,25 +648,36 @@
         }
 
         function renderTrainerControls() {
+          const trainingTopics = [
+            { value: '1', label: '1. Theology behind effective outreach' },
+            { value: '2', label: '2. Key principles about people far from God' },
+            { value: '3', label: '3. Go-to skills for conversations' },
+            { value: '4', label: '4. Dos and don\'ts' },
+          ];
+
           return (
             <div className="practiceControls">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1f2937' }}>Quick select training topic:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {trainingTopics.map(topic => (
+                    <button
+                      key={topic.value}
+                      type="button"
+                      className="pillButton"
+                      onClick={async () => {
+                        setTrainerTopic(topic.value);
+                        await runAgentMessage('trainer', topic.label);
+                      }}
+                      disabled={loading}
+                      style={{ background: trainerTopic === topic.value ? 'rgba(37, 99, 235, 0.18)' : undefined, color: trainerTopic === topic.value ? '#1d4ed8' : undefined }}
+                    >
+                      {topic.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="coachRow">
-                <label>
-                  Topic or module
-                  <input
-                    value={trainerTopic}
-                    onChange={e => setTrainerTopic(e.target.value)}
-                    placeholder="e.g. yellow_light"
-                  />
-                </label>
-                <label>
-                  Notes to keep
-                  <input
-                    value={trainerNotes}
-                    onChange={e => setTrainerNotes(e.target.value)}
-                    placeholder="Optional notes"
-                  />
-                </label>
                 <label className="rememberRow">
                   <input
                     type="checkbox"
@@ -729,16 +742,6 @@
                   Reset practice transcript
                 </button>
               </div>
-              {practiceTranscript.length > 0 && (
-                <div>
-                  <strong style={{ fontSize: '13px' }}>Transcript preview</strong>
-                  <div className="transcriptBox">
-                    {practiceTranscript.map((turn, idx) => (
-                      <div key={idx}><strong>{formatRole(turn.role)}:</strong> {turn.content}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           );
         }
@@ -887,7 +890,7 @@
                 disabled={loading}
               />
               <button onClick={handleSend} disabled={loading || !input.trim()}>
-                {loading ? 'Sending…' : 'Send'}
+                {loading ? <><span className="spinner"></span> Sending…</> : 'Send'}
               </button>
             </div>
           </>
