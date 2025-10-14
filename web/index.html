@@ -109,6 +109,12 @@
       .pillButton.danger { color: #b91c1c; background: rgba(248, 113, 113, 0.18); }
       .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255, 255, 255, 0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 0.8s linear infinite; }
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .audioControls { display: flex; gap: 12px; align-items: center; padding: 16px 20px; border-top: 1px solid rgba(148, 163, 184, 0.25); background: rgba(248, 250, 252, 0.8); }
+      .recordButton { padding: 12px 24px; border-radius: 12px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s ease; }
+      .recordButton.inactive { background: var(--accent); color: white; }
+      .recordButton.recording { background: #dc2626; color: white; animation: pulse 1.5s ease-in-out infinite; }
+      .recordButton.connecting { background: #fbbf24; color: #78350f; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     </style>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -184,7 +190,7 @@
       function ChatApp() {
         const [user, setUser] = useState(null);
         const [authMode, setAuthMode] = useState('login');
-        const [authForm, setAuthForm] = useState({ email: '', password: '', fullName: '' });
+        const [authForm, setAuthForm] = useState({ email: 'rob.sturgessdurden@gmail.com', password: 'St33lm4n!', fullName: '' });
         const [authLoading, setAuthLoading] = useState(false);
         const [authError, setAuthError] = useState('');
         const [rememberMe, setRememberMe] = useState(false);
@@ -206,6 +212,18 @@
         });
         const [practiceTranscript, setPracticeTranscript] = useState([]);
         const [practiceCompletedFlag, setPracticeCompletedFlag] = useState(false);
+        const [practiceAudioMode, setPracticeAudioMode] = useState(false);
+        const [realtimeSession, setRealtimeSession] = useState(null);
+        const [isRecording, setIsRecording] = useState(false);
+        const [audioStatus, setAudioStatus] = useState('inactive'); // inactive, connecting, ready, recording
+
+        const wsRef = useRef(null);
+        const audioContextRef = useRef(null);
+        const audioStreamRef = useRef(null);
+        const processorRef = useRef(null);
+        const audioQueueRef = useRef([]);
+        const isPlayingRef = useRef(false);
+        const isRecordingRef = useRef(false);
 
         const [trainerTopic, setTrainerTopic] = useState('');
         const [trainerMarkComplete, setTrainerMarkComplete] = useState(false);
@@ -224,8 +242,12 @@
         const activeRoleDef = ROLE_MAP[activeRole] || ROLE_DEFS[0];
 
         useEffect(() => {
+          console.log('Checking for remembered user...');
+          console.log('Document cookies:', document.cookie);
           const remembered = getRememberedUser();
+          console.log('Remembered user:', remembered);
           if (remembered && remembered.email) {
+            console.log('Auto-logging in as:', remembered.email);
             setUser({ email: remembered.email, full_name: remembered.full_name || '' });
             setRememberMe(true);
           }
@@ -250,6 +272,25 @@
             scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
           }
         }, [messagesByRole, activeRole]);
+
+        // Cleanup audio resources when leaving practicer or unmounting
+        useEffect(() => {
+          return () => {
+            if (wsRef.current) {
+              wsRef.current.close();
+              wsRef.current = null;
+            }
+            stopAudioCapture();
+          };
+        }, []);
+
+        // Stop audio when switching away from practicer
+        useEffect(() => {
+          if (activeRole !== 'practicer' && practiceAudioMode) {
+            setPracticeAudioMode(false);
+            stopRealtimeSession();
+          }
+        }, [activeRole]);
 
         useEffect(() => {
           if (!user) {
@@ -691,6 +732,287 @@
           );
         }
 
+        async function startRealtimeSession() {
+          try {
+            setAudioStatus('connecting');
+
+            // Create realtime session
+            const res = await fetch('/api/realtime/session', {
+              method: 'POST',
+              credentials: 'same-origin'
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              throw new Error(data.detail || 'Failed to create realtime session');
+            }
+            console.log('Realtime session created:', data);
+            setRealtimeSession(data);
+
+            if (!data.api_key) {
+              throw new Error('No API key in session response');
+            }
+
+            // Connect WebSocket using the API key in the Authorization header via subprotocol
+            const wsUrl = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(data.model)}`;
+            console.log('Connecting to WebSocket:', wsUrl);
+
+            // Try connecting with Authorization header via custom header (not possible in browser)
+            // We need to use the protocol-based auth
+            const ws = new WebSocket(wsUrl, [
+              'realtime',
+              `openai-insecure-api-key.${data.api_key}`,
+              `openai-beta.realtime-v1`
+            ]);
+            wsRef.current = ws;
+
+            // Add connection timeout
+            let timeoutTriggered = false;
+            const connectionTimeout = setTimeout(() => {
+              if (wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket connection timeout');
+                timeoutTriggered = true;
+                if (wsRef.current) {
+                  wsRef.current.close();
+                }
+                setAudioStatus('inactive');
+                setPracticeAudioMode(false);
+                alert('Audio connection timed out. Please try again.');
+              }
+            }, 10000); // 10 second timeout
+
+            ws.onopen = async () => {
+              console.log('WebSocket onopen fired');
+              if (timeoutTriggered) {
+                console.log('Timeout already triggered, aborting onopen');
+                return;
+              }
+              console.log('WebSocket connected, ready state:', ws.readyState);
+              clearTimeout(connectionTimeout);
+
+              // Start audio capture first
+              try {
+                console.log('Starting audio capture...');
+                await startAudioCapture(ws);
+                console.log('Audio capture started successfully, setting status to ready');
+                setAudioStatus('ready');
+              } catch (err) {
+                console.error('Failed to start audio capture:', err);
+                alert('Failed to access microphone: ' + err.message);
+                setAudioStatus('inactive');
+                setPracticeAudioMode(false);
+                ws.close();
+                return;
+              }
+
+              // Send session update with instructions
+              console.log('Sending session.update...');
+              ws.send(JSON.stringify({
+                type: 'session.update',
+                session: {
+                  instructions: `You are roleplaying as: ${practiceConfig.scenario}. Difficulty level: ${practiceConfig.difficulty}. Stay in character and respond naturally. Start the conversation by greeting the user and introducing yourself in character.`
+                }
+              }));
+
+              // Send initial greeting request
+              console.log('Sending response.create for initial greeting...');
+              ws.send(JSON.stringify({
+                type: 'response.create'
+              }));
+            };
+
+            ws.onmessage = async (event) => {
+              const message = JSON.parse(event.data);
+              console.log('Received:', message.type);
+
+              if (message.type === 'error') {
+                console.error('WebSocket error message:', message);
+                alert('Audio session error: ' + (message.error?.message || JSON.stringify(message)));
+                setAudioStatus('inactive');
+                setPracticeAudioMode(false);
+                ws.close();
+                return;
+              }
+
+              if (message.type === 'response.audio.delta' && message.delta) {
+                // Queue audio for playback
+                audioQueueRef.current.push(message.delta);
+                if (!isPlayingRef.current) {
+                  playAudioQueue();
+                }
+              } else if (message.type === 'response.audio_transcript.delta' && message.delta) {
+                // Update transcript
+                setPracticeTranscript(prev => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.role === 'assistant' && !last.completed) {
+                    return [...prev.slice(0, -1), { ...last, content: last.content + message.delta }];
+                  } else {
+                    return [...prev, { role: 'assistant', content: message.delta, completed: false }];
+                  }
+                });
+              } else if (message.type === 'response.audio_transcript.done') {
+                setPracticeTranscript(prev => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.role === 'assistant') {
+                    return [...prev.slice(0, -1), { ...last, completed: true }];
+                  }
+                  return prev;
+                });
+              } else if (message.type === 'input_audio_buffer.speech_started') {
+                setIsRecording(true);
+              } else if (message.type === 'input_audio_buffer.speech_stopped') {
+                setIsRecording(false);
+              } else if (message.type === 'conversation.item.input_audio_transcription.completed') {
+                setPracticeTranscript(prev => [...prev, { role: 'user', content: message.transcript, completed: true }]);
+              }
+            };
+
+            ws.onerror = (error) => {
+              console.error('WebSocket error:', error);
+              clearTimeout(connectionTimeout);
+              setAudioStatus('inactive');
+            };
+
+            ws.onclose = () => {
+              console.log('WebSocket closed');
+              clearTimeout(connectionTimeout);
+              setAudioStatus('inactive');
+              stopAudioCapture();
+            };
+
+          } catch (err) {
+            console.error('Failed to start realtime session:', err);
+            alert('Failed to start audio mode: ' + err.message);
+            setPracticeAudioMode(false);
+            setAudioStatus('inactive');
+          }
+        }
+
+        async function startAudioCapture(ws) {
+          try {
+            // Check if getUserMedia is available
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+              throw new Error('Microphone access is not available. Please use HTTPS or localhost.');
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioStreamRef.current = stream;
+
+            const audioContext = new AudioContext({ sampleRate: 24000 });
+            audioContextRef.current = audioContext;
+
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+            processorRef.current = processor;
+
+            processor.onaudioprocess = (e) => {
+              if (ws.readyState === WebSocket.OPEN && isRecordingRef.current) {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const pcm16 = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                  pcm16[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32768)));
+                }
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+                ws.send(JSON.stringify({
+                  type: 'input_audio_buffer.append',
+                  audio: base64
+                }));
+              }
+            };
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+          } catch (err) {
+            console.error('Failed to start audio capture:', err);
+            throw err;
+          }
+        }
+
+        function toggleRecording() {
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+            return;
+          }
+
+          if (isRecordingRef.current) {
+            // Stop recording and commit the audio
+            isRecordingRef.current = false;
+            setIsRecording(false);
+            wsRef.current.send(JSON.stringify({
+              type: 'input_audio_buffer.commit'
+            }));
+            wsRef.current.send(JSON.stringify({
+              type: 'response.create'
+            }));
+          } else {
+            // Start recording
+            isRecordingRef.current = true;
+            setIsRecording(true);
+          }
+        }
+
+        function stopAudioCapture() {
+          if (processorRef.current) {
+            processorRef.current.disconnect();
+            processorRef.current = null;
+          }
+          if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach(track => track.stop());
+            audioStreamRef.current = null;
+          }
+          if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+          }
+        }
+
+        async function playAudioQueue() {
+          isPlayingRef.current = true;
+          const audioContext = new AudioContext({ sampleRate: 24000 });
+
+          while (audioQueueRef.current.length > 0) {
+            const base64Audio = audioQueueRef.current.shift();
+            try {
+              const binaryString = atob(base64Audio);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              const pcm16 = new Int16Array(bytes.buffer);
+              const float32 = new Float32Array(pcm16.length);
+              for (let i = 0; i < pcm16.length; i++) {
+                float32[i] = pcm16[i] / 32768;
+              }
+              const audioBuffer = audioContext.createBuffer(1, float32.length, 24000);
+              audioBuffer.getChannelData(0).set(float32);
+
+              const source = audioContext.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(audioContext.destination);
+              source.start();
+
+              await new Promise(resolve => {
+                source.onended = resolve;
+              });
+            } catch (err) {
+              console.error('Error playing audio:', err);
+            }
+          }
+
+          isPlayingRef.current = false;
+        }
+
+        function stopRealtimeSession() {
+          if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+          }
+          stopAudioCapture();
+          setRealtimeSession(null);
+          setAudioStatus('inactive');
+          isRecordingRef.current = false;
+          setIsRecording(false);
+          audioQueueRef.current = [];
+        }
+
         function renderPracticeControls() {
           return (
             <div className="practiceControls">
@@ -730,6 +1052,24 @@
                 </label>
               </div>
               <div className="practiceActions">
+                <label className="rememberRow">
+                  <input
+                    type="checkbox"
+                    checked={practiceAudioMode}
+                    disabled={audioStatus === 'connecting'}
+                    onChange={async (e) => {
+                      const isChecked = e.target.checked;
+                      if (isChecked) {
+                        setPracticeAudioMode(true);
+                        await startRealtimeSession();
+                      } else {
+                        setPracticeAudioMode(false);
+                        stopRealtimeSession();
+                      }
+                    }}
+                  />
+                  Audio mode (realtime voice chat)
+                </label>
                 <label className="rememberRow">
                   <input
                     type="checkbox"
@@ -881,18 +1221,61 @@
                 </div>
               ))}
             </div>
-            <div className="inputBar">
-              <input
-                placeholder={loading ? 'One moment…' : `Message the ${activeRoleDef.label}`}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                disabled={loading}
-              />
-              <button onClick={handleSend} disabled={loading || !input.trim()}>
-                {loading ? <><span className="spinner"></span> Sending…</> : 'Send'}
-              </button>
-            </div>
+            {activeRole === 'practicer' && practiceAudioMode ? (
+              <div className="audioControls">
+                <button
+                  className={`recordButton ${audioStatus === 'connecting' ? 'connecting' : isRecording ? 'recording' : 'inactive'}`}
+                  disabled={audioStatus === 'inactive' || audioStatus === 'connecting'}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    if (audioStatus === 'ready' && !isRecording) {
+                      isRecordingRef.current = true;
+                      setIsRecording(true);
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    e.preventDefault();
+                    if (audioStatus === 'ready' && isRecording) {
+                      toggleRecording();
+                    }
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    if (audioStatus === 'ready' && !isRecording) {
+                      isRecordingRef.current = true;
+                      setIsRecording(true);
+                    }
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    if (audioStatus === 'ready' && isRecording) {
+                      toggleRecording();
+                    }
+                  }}
+                >
+                  {audioStatus === 'connecting' ? 'Connecting...' : isRecording ? '🎤 Recording...' : '🎤 Hold to Talk'}
+                </button>
+                <div style={{ fontSize: '14px', color: '#64748b' }}>
+                  {audioStatus === 'ready' && isRecording ? 'Release to send your message' :
+                   audioStatus === 'ready' ? 'Hold the button and speak - release when done' :
+                   audioStatus === 'connecting' ? 'Setting up audio connection...' :
+                   'Waiting for connection...'}
+                </div>
+              </div>
+            ) : (
+              <div className="inputBar">
+                <input
+                  placeholder={loading ? 'One moment…' : `Message the ${activeRoleDef.label}`}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  disabled={loading}
+                />
+                <button onClick={handleSend} disabled={loading || !input.trim()}>
+                  {loading ? <><span className="spinner"></span> Sending…</> : 'Send'}
+                </button>
+              </div>
+            )}
           </>
         );
       }

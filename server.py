@@ -71,6 +71,7 @@ PRACTICER_PROMPT_ID = os.getenv("OPENAI_PRACTICER_PROMPT_ID", PROMPT_ID)
 PRACTICER_PROMPT_VERSION = os.getenv("OPENAI_PRACTICER_PROMPT_VERSION")
 COACH_PROMPT_ID = os.getenv("OPENAI_COACH_PROMPT_ID", PROMPT_ID)
 COACH_PROMPT_VERSION = os.getenv("OPENAI_COACH_PROMPT_VERSION")
+PRACTICER_REALTIME_PROMPT_ID = os.getenv("OPENAI_PRACTICER_REALTIME_PROMPT_ID")
 
 AUTH_COOKIE_NAME = "bm_user"
 AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -82,6 +83,7 @@ GOOGLE_INTERACTIONS_WORKSHEET = os.getenv("GOOGLE_SHEET_INTERACTIONS_TAB", "Inte
 GOOGLE_SESSION_WORKSHEET = os.getenv("GOOGLE_SHEET_SESSION_STATE_TAB", "AgentState")
 GOOGLE_PRACTICE_WORKSHEET = os.getenv("GOOGLE_SHEET_PRACTICE_TAB", "PracticeHistory")
 GOOGLE_FEEDBACK_WORKSHEET = os.getenv("GOOGLE_SHEET_FEEDBACK_TAB", "CoachingFeedback")
+GOOGLE_PROGRESS_WORKSHEET = os.getenv("GOOGLE_SHEET_PROGRESS_TAB", "Progress")
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 USERS_HEADERS = ["timestamp", "email", "full_name", "password_hash"]
@@ -89,6 +91,7 @@ INTERACTION_HEADERS = ["timestamp", "user_id", "user_message", "assistant_reply"
 SESSION_STATE_HEADERS = ["user_id", "state_json", "updated_at"]
 PRACTICE_HISTORY_HEADERS = ["timestamp", "user_id", "scenario", "difficulty", "transcript_json", "outcome"]
 COACHING_FEEDBACK_HEADERS = ["timestamp", "user_id", "feedback", "next_steps", "rubric_json"]
+PROGRESS_HEADERS = ["user_id", "completed_topics", "completed_practices", "completed_coaching_sessions", "last_activity", "last_task", "updated_at"]
 
 worksheet_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -337,6 +340,81 @@ def _append_coaching_feedback(
     ]
     with worksheet_lock:
         worksheet.append_row(record, value_input_option="USER_ENTERED")
+
+
+def _load_user_progress(user_id: str) -> Dict[str, Any]:
+    """Load user progress from the Progress worksheet"""
+    default_progress = {
+        "completed_topics": [],
+        "completed_practices": 0,
+        "completed_coaching_sessions": 0,
+        "last_activity": None,
+        "last_task": None,
+    }
+
+    if not user_id or not _google_sheets_available():
+        return default_progress
+
+    try:
+        worksheet = _ensure_worksheet(GOOGLE_PROGRESS_WORKSHEET, PROGRESS_HEADERS)
+        records = worksheet.get_all_records(expected_headers=PROGRESS_HEADERS)
+        for row in records:
+            if str(row.get("user_id", "")).strip().lower() == user_id.strip().lower():
+                completed_topics_str = row.get("completed_topics", "")
+                completed_topics = completed_topics_str.split(",") if completed_topics_str else []
+                completed_topics = [t.strip() for t in completed_topics if t.strip()]
+
+                return {
+                    "completed_topics": completed_topics,
+                    "completed_practices": int(row.get("completed_practices", 0) or 0),
+                    "completed_coaching_sessions": int(row.get("completed_coaching_sessions", 0) or 0),
+                    "last_activity": row.get("last_activity") or None,
+                    "last_task": row.get("last_task") or None,
+                }
+    except Exception as exc:
+        logger.warning("Failed to load user progress: %s", exc)
+
+    return default_progress
+
+
+def _save_user_progress(user_id: str, progress: Dict[str, Any]) -> None:
+    """Save user progress to the Progress worksheet"""
+    if not user_id or not _google_sheets_available():
+        return
+
+    try:
+        worksheet = _ensure_worksheet(GOOGLE_PROGRESS_WORKSHEET, PROGRESS_HEADERS)
+
+        # Convert completed_topics list to comma-separated string
+        completed_topics_str = ",".join(progress.get("completed_topics", []))
+
+        record = [
+            user_id,
+            completed_topics_str,
+            progress.get("completed_practices", 0),
+            progress.get("completed_coaching_sessions", 0),
+            progress.get("last_activity", ""),
+            progress.get("last_task", ""),
+            datetime.utcnow().isoformat(),
+        ]
+
+        # Find existing row or append new one
+        with worksheet_lock:
+            records = worksheet.get_all_records(expected_headers=PROGRESS_HEADERS)
+            row_number = None
+            for idx, row in enumerate(records, start=2):
+                if str(row.get("user_id", "")).strip().lower() == user_id.strip().lower():
+                    row_number = idx
+                    break
+
+            if row_number is not None:
+                start_col = "A"
+                end_col = chr(ord("A") + len(record) - 1)
+                worksheet.update(f"{start_col}{row_number}:{end_col}{row_number}", [record])
+            else:
+                worksheet.append_row(record, value_input_option="USER_ENTERED")
+    except Exception as exc:
+        logger.warning("Failed to save user progress: %s", exc)
 
 
 def _call_responses_api(
@@ -671,7 +749,7 @@ async def logout_user(response: Response) -> Dict[str, str]:
     return {"status": "logged_out"}
 
 
-def _build_controller_context(state: Dict[str, Any]) -> str:
+def _build_controller_context(state: Dict[str, Any], progress: Dict[str, Any]) -> str:
     training = state.get("training_progress", {}) or {}
     completed = training.get("completed_topics", []) or []
     in_progress = training.get("in_progress_topic") or ""
@@ -679,9 +757,24 @@ def _build_controller_context(state: Dict[str, Any]) -> str:
     practice_entries = state.get("practice_history", []) or []
     coaching_entries = state.get("coaching_feedback", []) or []
 
+    # Build progress summary
+    completed_topics = progress.get("completed_topics", [])
+    completed_practices = progress.get("completed_practices", 0)
+    completed_coaching = progress.get("completed_coaching_sessions", 0)
+    last_task = progress.get("last_task") or "None"
+    last_activity = progress.get("last_activity") or "None"
+
     context_lines = [
         f"Current role: {state.get('current_role', 'controller')}",
-        f"Completed training topics: {', '.join(completed) if completed else 'None'}",
+        "",
+        "=== USER PROGRESS SUMMARY ===",
+        f"Completed training topics: {', '.join(completed_topics) if completed_topics else 'None'}",
+        f"Total practice sessions completed: {completed_practices}",
+        f"Total coaching sessions completed: {completed_coaching}",
+        f"Last activity: {last_activity}",
+        f"Last task: {last_task}",
+        "",
+        "=== CURRENT SESSION ===",
         f"Topic in progress: {in_progress or 'None'}",
     ]
     if notes:
@@ -689,11 +782,14 @@ def _build_controller_context(state: Dict[str, Any]) -> str:
     if practice_entries:
         last_practice = practice_entries[-1]
         context_lines.append(
-            "Last practice: "
+            "Last practice in this session: "
             + f"Scenario={last_practice.get('scenario', '')}, Difficulty={last_practice.get('difficulty', '')}, Outcome={last_practice.get('outcome', '')}"
         )
     if coaching_entries:
         context_lines.append(f"Recent coaching feedback: {coaching_entries[-1].get('feedback', '')}")
+
+    context_lines.append("")
+    context_lines.append("Based on the user's progress, suggest appropriate next steps (training, practice, or coaching).")
     return "\n".join(context_lines)
 
 
@@ -720,7 +816,8 @@ async def agent_controller(payload: ControllerRequest) -> AgentResponse:
         raise HTTPException(status_code=400, detail="user_id is required")
 
     state, row = _load_user_state(payload.user_id)
-    context = _build_controller_context(state)
+    progress = _load_user_progress(payload.user_id)
+    context = _build_controller_context(state, progress)
     instruction = (
         "You are the session controller for an evangelism training assistant."
         " Greet the user warmly and concisely, confirm their request, and guide them toward"
@@ -760,6 +857,11 @@ async def agent_controller(payload: ControllerRequest) -> AgentResponse:
         response_meta["route_to"] = route_to
 
     state["current_role"] = route_to or "controller"
+
+    # Update progress
+    progress["last_activity"] = f"controller: {payload.message[:50]}"
+    progress["last_task"] = route_to or "controller"
+    _save_user_progress(payload.user_id, progress)
 
     sanitized = _sanitize_state_for_storage(state)
     _save_user_state(payload.user_id, state, row)
@@ -807,14 +909,27 @@ async def agent_trainer(payload: TrainerRequest) -> AgentResponse:
     )
     state["current_role"] = "trainer"
 
+    # Update progress tracking
+    progress = _load_user_progress(payload.user_id)
+
     if payload.topic:
         if payload.mark_complete:
             completed = training.setdefault("completed_topics", [])
             if payload.topic not in completed:
                 completed.append(payload.topic)
             training["in_progress_topic"] = None
+
+            # Update progress worksheet
+            if payload.topic not in progress["completed_topics"]:
+                progress["completed_topics"].append(payload.topic)
+            progress["last_activity"] = f"Completed training: {payload.topic}"
+            progress["last_task"] = "trainer"
+            _save_user_progress(payload.user_id, progress)
         else:
             training["in_progress_topic"] = payload.topic
+            progress["last_activity"] = f"Training in progress: {payload.topic}"
+            progress["last_task"] = "trainer"
+            _save_user_progress(payload.user_id, progress)
     if payload.notes:
         training["notes"] = payload.notes
 
@@ -884,6 +999,11 @@ async def agent_practicer(payload: PracticerRequest) -> AgentResponse:
     _append_history(state, "practicer_history", summary_entry)
     state["current_role"] = "practicer"
 
+    # Update progress tracking
+    progress = _load_user_progress(payload.user_id)
+    progress["last_activity"] = f"Practice: {payload.scenario}"
+    progress["last_task"] = "practicer"
+
     if payload.session_completed:
         _append_practice_history(
             payload.user_id,
@@ -894,6 +1014,12 @@ async def agent_practicer(payload: PracticerRequest) -> AgentResponse:
         )
         # reflect summary in general practice history list for quick reference
         _append_history(state, "practice_history", summary_entry)
+
+        # Increment completed practices count
+        progress["completed_practices"] = progress.get("completed_practices", 0) + 1
+        progress["last_activity"] = f"Completed practice: {payload.scenario}"
+
+    _save_user_progress(payload.user_id, progress)
 
     sanitized = _sanitize_state_for_storage(state)
     _save_user_state(payload.user_id, state, row)
@@ -948,6 +1074,13 @@ async def agent_coach(payload: CoachRequest) -> AgentResponse:
 
     _append_coaching_feedback(payload.user_id, reply, payload.next_steps, payload.rubric)
     _append_history(state, "coaching_feedback", feedback_entry)
+
+    # Update progress tracking
+    progress = _load_user_progress(payload.user_id)
+    progress["completed_coaching_sessions"] = progress.get("completed_coaching_sessions", 0) + 1
+    progress["last_activity"] = "Coaching session completed"
+    progress["last_task"] = "coach"
+    _save_user_progress(payload.user_id, progress)
 
     sanitized = _sanitize_state_for_storage(state)
     _save_user_state(payload.user_id, state, row)
@@ -1062,6 +1195,20 @@ async def transcribe(audio: UploadFile = File(...)) -> Dict[str, str]:
         return {"text": text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"transcription failed: {e}")
+
+
+@app.post("/api/realtime/session")
+async def create_realtime_session() -> Dict[str, Any]:
+    """Create a realtime session for audio chat"""
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+
+    # Return the API key for direct WebSocket connection
+    # The prompt instructions will be sent via WebSocket after connection
+    return {
+        "api_key": OPENAI_API_KEY,
+        "model": "gpt-4o-realtime-preview-2024-12-17"
+    }
 
 
 @app.post("/api/tts")
