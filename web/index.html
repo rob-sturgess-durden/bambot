@@ -224,6 +224,7 @@
         const audioQueueRef = useRef([]);
         const isPlayingRef = useRef(false);
         const isRecordingRef = useRef(false);
+        const recordingStartTimeRef = useRef(null);
 
         const [trainerTopic, setTrainerTopic] = useState('');
         const [trainerMarkComplete, setTrainerMarkComplete] = useState(false);
@@ -933,9 +934,19 @@
           }
 
           if (isRecordingRef.current) {
+            // Check minimum recording time (100ms minimum required by API)
+            const recordingDuration = Date.now() - (recordingStartTimeRef.current || 0);
+            if (recordingDuration < 150) {
+              // Less than 150ms - too short, ignore the release
+              console.log('Recording too short, ignoring release');
+              return;
+            }
+
             // Stop recording and commit the audio
             isRecordingRef.current = false;
             setIsRecording(false);
+            recordingStartTimeRef.current = null;
+
             wsRef.current.send(JSON.stringify({
               type: 'input_audio_buffer.commit'
             }));
@@ -946,6 +957,7 @@
             // Start recording
             isRecordingRef.current = true;
             setIsRecording(true);
+            recordingStartTimeRef.current = Date.now();
           }
         }
 
@@ -1231,6 +1243,7 @@
                     if (audioStatus === 'ready' && !isRecording) {
                       isRecordingRef.current = true;
                       setIsRecording(true);
+                      recordingStartTimeRef.current = Date.now();
                     }
                   }}
                   onMouseUp={(e) => {
@@ -1244,6 +1257,7 @@
                     if (audioStatus === 'ready' && !isRecording) {
                       isRecordingRef.current = true;
                       setIsRecording(true);
+                      recordingStartTimeRef.current = Date.now();
                     }
                   }}
                   onTouchEnd={(e) => {
