@@ -270,7 +270,14 @@
 
         useEffect(() => {
           if (scrollerRef.current) {
-            scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
+            const messages = messagesByRole[activeRole] || [];
+            if (messages.length > 0) {
+              // Scroll to show the start of the most recent message
+              const lastMessage = scrollerRef.current.lastElementChild;
+              if (lastMessage) {
+                lastMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }
           }
         }, [messagesByRole, activeRole]);
 
@@ -936,16 +943,17 @@
           if (isRecordingRef.current) {
             // Check minimum recording time (100ms minimum required by API)
             const recordingDuration = Date.now() - (recordingStartTimeRef.current || 0);
-            if (recordingDuration < 150) {
-              // Less than 150ms - too short, ignore the release
-              console.log('Recording too short, ignoring release');
-              return;
-            }
 
-            // Stop recording and commit the audio
+            // Always reset the recording state, even if too short
             isRecordingRef.current = false;
             setIsRecording(false);
             recordingStartTimeRef.current = null;
+
+            // Only commit if we have enough audio (200ms minimum to be safe)
+            if (recordingDuration < 200) {
+              console.log(`Recording too short (${recordingDuration}ms), not committing`);
+              return;
+            }
 
             wsRef.current.send(JSON.stringify({
               type: 'input_audio_buffer.commit'

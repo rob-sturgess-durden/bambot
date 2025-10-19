@@ -8,6 +8,8 @@ from functools import lru_cache
 from threading import Lock
 from typing import Dict, Optional, List, Any, Tuple
 
+from training_curriculum import build_training_context, get_total_steps, get_topic_info, is_topic_complete
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -42,10 +44,10 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     HAS_MULTIPART = False
 
 DEFAULT_PROMPT_ID = "pmpt_68dafc0b9a408195836b76108153ee8e0fce762e4ce36e20"
-DEFAULT_VECTOR_STORE_ID = "vs_68dafbe90f3c81919d396ebafc21031d"
+DEFAULT_VECTOR_STORE_ID = "vs_68dafbe90f3c81919d396ebafc21031d,vs_68dae6d13bd4819194d81215bd0c3874"
 
 PROMPT_ID = os.getenv("OPENAI_PROMPT_ID", os.getenv("PROMPT_ID") or DEFAULT_PROMPT_ID)
-PROMPT_VERSION = os.getenv("OPENAI_PROMPT_VERSION", "3")
+PROMPT_VERSION = os.getenv("OPENAI_PROMPT_VERSION")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL")
 VECTOR_STORE_IDS = [
@@ -92,6 +94,7 @@ SESSION_STATE_HEADERS = ["user_id", "state_json", "updated_at"]
 PRACTICE_HISTORY_HEADERS = ["timestamp", "user_id", "scenario", "difficulty", "transcript_json", "outcome"]
 COACHING_FEEDBACK_HEADERS = ["timestamp", "user_id", "feedback", "next_steps", "rubric_json"]
 PROGRESS_HEADERS = ["user_id", "completed_topics", "completed_practices", "completed_coaching_sessions", "last_activity", "last_task", "updated_at"]
+TRAINING_DETAILS_HEADERS = ["timestamp", "user_id", "topic_id", "topic_title", "steps_completed"]
 
 worksheet_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -188,6 +191,8 @@ def _default_user_state() -> Dict[str, Any]:
         "training_progress": {
             "completed_topics": [],
             "in_progress_topic": None,
+            "current_step": 1,  # Current step within the topic
+            "awaiting_response": False,
             "notes": "",
         },
         "practice_history": [],
@@ -218,6 +223,8 @@ def _sanitize_state_for_storage(state: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(training, dict)
             else [],
             "in_progress_topic": training.get("in_progress_topic") if isinstance(training, dict) else None,
+            "current_step": int(training.get("current_step", 1)) if isinstance(training, dict) else 1,
+            "awaiting_response": bool(training.get("awaiting_response", False)) if isinstance(training, dict) else False,
             "notes": str(training.get("notes", "")) if isinstance(training, dict) else "",
         },
         "practice_history": _trim_history(practice),
@@ -340,6 +347,41 @@ def _append_coaching_feedback(
     ]
     with worksheet_lock:
         worksheet.append_row(record, value_input_option="USER_ENTERED")
+
+
+def _append_training_completion(user_id: str, topic_id: str, steps_completed: int) -> None:
+    if not _google_sheets_available():
+        return
+
+    worksheet = _ensure_worksheet("TrainingDetails", TRAINING_DETAILS_HEADERS)
+    topic = get_topic_info(topic_id)
+    record = [
+        datetime.utcnow().isoformat(),
+        user_id,
+        topic_id,
+        topic.get("title", "") if isinstance(topic, dict) else "",
+        steps_completed,
+    ]
+    with worksheet_lock:
+        worksheet.append_row(record, value_input_option="USER_ENTERED")
+
+
+def _render_progress_bar(current_step: int, total_steps: int, awaiting_response: bool) -> str:
+    if total_steps <= 0:
+        return f"Step {current_step}"
+
+    completed_steps = max(0, min(total_steps, current_step - 1))
+    bar_length = 10
+    filled_segments = min(bar_length, max(0, int((completed_steps / total_steps) * bar_length)))
+    bar = "#" * filled_segments + "-" * (bar_length - filled_segments)
+    status = "awaiting learner response" if awaiting_response else "introducing new step"
+    return f"[{bar}] Step {current_step} of {total_steps} ({status})"
+
+
+def _is_step_completed_reply(reply_text: str) -> bool:
+    if not reply_text:
+        return False
+    return reply_text.lstrip().startswith("✅")
 
 
 def _load_user_progress(user_id: str) -> Dict[str, Any]:
@@ -877,69 +919,231 @@ async def agent_trainer(payload: TrainerRequest) -> AgentResponse:
     state, row = _load_user_state(payload.user_id)
     training = state.setdefault("training_progress", _default_user_state()["training_progress"])
 
-    context_lines = [
-        f"Completed topics: {', '.join(training.get('completed_topics', [])) or 'None'}",
-        f"In-progress topic: {training.get('in_progress_topic') or 'None'}",
-    ]
-    if training.get("notes"):
-        context_lines.append(f"Notes: {training['notes']}")
-    if payload.topic:
-        context_lines.append(f"Requested topic: {payload.topic}")
-    if payload.mark_complete:
-        context_lines.append("User indicates the topic should be marked complete after this session.")
+    topic_restart = False
+    if payload.topic and training.get("in_progress_topic") == payload.topic:
+        topic_info = get_topic_info(payload.topic)
+        topic_title = topic_info.get("title", "") if isinstance(topic_info, dict) else ""
+        normalized_message = payload.message.strip().lower() if payload.message else ""
+        candidate_labels = {str(payload.topic).strip().lower()}
+        if topic_title:
+            candidate_labels.add(topic_title.strip().lower())
+            candidate_labels.add(f"{payload.topic}. {topic_title}".strip().lower())
+        if normalized_message and (
+            normalized_message in candidate_labels
+            or normalized_message.startswith(f"{payload.topic}.")
+        ):
+            topic_restart = True
 
-    context_body = "\n".join(context_lines)
-    message_text = (
-        "You are the training agent. Continue the lesson with the given progress context."
-        f"\n\nContext:\n{context_body}\n\nUser message:\n{payload.message}"
-    )
+    if payload.topic and (payload.topic != training.get("in_progress_topic") or topic_restart):
+        training["in_progress_topic"] = payload.topic
+        training["current_step"] = 1
+        training["awaiting_response"] = False
 
-    reply, _ = _call_responses_api(
+    current_topic = payload.topic or training.get("in_progress_topic")
+    current_step = int(training.get("current_step", 1)) if isinstance(training, dict) else 1
+    if current_step < 1:
+        current_step = 1
+        training["current_step"] = current_step
+
+    total_steps = get_total_steps(current_topic) if current_topic else 0
+    if current_topic and total_steps and current_step > total_steps:
+        current_step = total_steps
+        training["current_step"] = current_step
+
+    awaiting_response = bool(training.get("awaiting_response", False)) if isinstance(training, dict) else False
+    progress_indicator = ""
+    if current_topic:
+        progress_indicator = _render_progress_bar(current_step, total_steps, awaiting_response)
+
+    if not current_topic:
+        base_message = "Ask the user to select a training topic (1-4)."
+        message_text = f"{base_message}\n\nUser message:\n{payload.message}"
+    else:
+        learner_message = payload.message if awaiting_response else None
+        context = build_training_context(current_topic, current_step, learner_message)
+        preface_sections: List[str] = []
+        if progress_indicator:
+            preface_sections.append(
+                "PROGRESS INDICATOR:\n"
+                f"{progress_indicator}\n"
+                "Include this indicator verbatim at the top of your reply. After the indicator, follow the guidance below."
+            )
+        if awaiting_response:
+            preface_sections.append(
+                "The learner has just responded to this step. Review their message below. "
+                "If it meets the completion signal, acknowledge them briefly and stop. "
+                "After the progress indicator, start your acknowledgement with `✅` when the step is complete. "
+                "If it does not meet the completion signal, start with `🔄`, give concise coaching, and invite them to try again. "
+                "Do NOT introduce the next step yourself."
+            )
+        else:
+            preface_sections.append(
+                "Introduce this step using the instructions below. Keep the reply brief and end with the question or prompt for the learner."
+            )
+        preface_sections.append(context)
+        message_text = "\n\n".join(preface_sections)
+
+    metadata_payload = {
+        "user_id": payload.user_id,
+        "agent": "trainer",
+        "topic": current_topic or "",
+    }
+    if current_topic:
+        metadata_payload["step"] = str(current_step)
+        metadata_payload["awaiting_response"] = "true" if awaiting_response else "false"
+        if progress_indicator:
+            metadata_payload["progress_bar"] = progress_indicator
+    if current_topic and total_steps:
+        metadata_payload["total_steps"] = str(total_steps)
+
+    reply_primary, _ = _call_responses_api(
         TRAINER_PROMPT_ID,
         TRAINER_PROMPT_VERSION,
         message_text,
-        metadata={"user_id": payload.user_id, "agent": "trainer", "topic": payload.topic or ""},
+        metadata=metadata_payload,
     )
 
+    reply_parts: List[str] = [reply_primary]
+
+    needs_new_step_intro = False
+
+    progress = _load_user_progress(payload.user_id)
+
+    step_marked_complete = awaiting_response and _is_step_completed_reply(reply_primary)
+
+    if payload.mark_complete and current_topic:
+        completed = training.setdefault("completed_topics", [])
+        if current_topic not in completed:
+            completed.append(current_topic)
+        training["in_progress_topic"] = None
+        training["current_step"] = 1
+        training["awaiting_response"] = False
+
+        if current_topic not in progress["completed_topics"]:
+            progress["completed_topics"].append(current_topic)
+        progress["last_activity"] = f"Completed training: {current_topic}"
+        progress["last_task"] = "trainer"
+        _save_user_progress(payload.user_id, progress)
+        _append_training_completion(payload.user_id, current_topic, total_steps)
+    else:
+        if current_topic:
+            if awaiting_response:
+                if step_marked_complete:
+                    training["awaiting_response"] = False
+                    if not is_topic_complete(current_topic, current_step):
+                        next_step = current_step + 1
+                        if total_steps and next_step > total_steps:
+                            next_step = total_steps
+                        training["current_step"] = next_step
+                        training["in_progress_topic"] = current_topic
+                        needs_new_step_intro = True
+                    else:
+                        training["current_step"] = current_step
+                else:
+                    training["awaiting_response"] = True
+                    training["current_step"] = current_step
+                    training["in_progress_topic"] = current_topic
+            else:
+                training["awaiting_response"] = True
+                training["in_progress_topic"] = current_topic
+
+    if current_topic and needs_new_step_intro:
+        next_step = int(training.get("current_step", current_step))
+        total_steps_after_intro = get_total_steps(current_topic)
+        intro_progress_indicator = _render_progress_bar(next_step, total_steps_after_intro, False)
+        next_context = build_training_context(current_topic, next_step)
+        intro_sections: List[str] = []
+        if intro_progress_indicator:
+            intro_sections.append(
+                "PROGRESS INDICATOR:\n"
+                f"{intro_progress_indicator}\n"
+                "Include this indicator verbatim at the top of your reply before any other text."
+            )
+        intro_sections.append(
+            "Introduce this step using the instructions below. Keep the reply brief and end with the question or prompt for the learner."
+        )
+        intro_sections.append(next_context)
+        intro_message_text = "\n\n".join(intro_sections)
+
+        intro_metadata = {
+            "user_id": payload.user_id,
+            "agent": "trainer",
+            "topic": current_topic or "",
+            "step": str(next_step),
+            "total_steps": str(total_steps_after_intro) if total_steps_after_intro else None,
+            "awaiting_response": "false",
+        }
+        if intro_progress_indicator:
+            intro_metadata["progress_bar"] = intro_progress_indicator
+        # Remove None values
+        intro_metadata = {k: v for k, v in intro_metadata.items() if v is not None}
+
+        reply_intro, _ = _call_responses_api(
+            TRAINER_PROMPT_ID,
+            TRAINER_PROMPT_VERSION,
+            intro_message_text,
+            metadata=intro_metadata,
+        )
+        reply_parts.append(reply_intro)
+        training["awaiting_response"] = True
+
     timestamp = datetime.utcnow().isoformat()
+
+    if payload.notes:
+        training["notes"] = payload.notes
+
+    state["current_role"] = "trainer"
+
+    updated_step = int(training.get("current_step", current_step))
+    if updated_step < 1:
+        updated_step = 1
+        training["current_step"] = updated_step
+    total_steps_after = get_total_steps(current_topic) if current_topic else 0
+    awaiting_after = bool(training.get("awaiting_response", False))
+
+    if current_topic and not payload.mark_complete:
+        step_desc = f"{updated_step}/{total_steps_after}" if total_steps_after else str(updated_step)
+        phase_desc = "awaiting learner response" if awaiting_after else "ready to introduce next step"
+        progress["last_activity"] = f"Training: Topic {current_topic}, Step {step_desc} ({phase_desc})"
+        progress["last_task"] = "trainer"
+        _save_user_progress(payload.user_id, progress)
+
+    response_progress_indicator = ""
+    if current_topic and not payload.mark_complete:
+        response_progress_indicator = _render_progress_bar(updated_step, total_steps_after, awaiting_after)
+
+    active_topic = training.get("in_progress_topic") or current_topic
+    response_metadata: Dict[str, Any] = {
+        "topic": active_topic,
+        "step": updated_step if (active_topic and not payload.mark_complete) else None,
+        "total_steps": total_steps_after if (active_topic and not payload.mark_complete) else None,
+        "awaiting_response": awaiting_after if (active_topic and not payload.mark_complete) else False,
+        "mark_complete": payload.mark_complete,
+    }
+    if response_progress_indicator:
+        response_metadata["progress_bar"] = response_progress_indicator
+
+    combined_reply = "\n\n".join(part for part in reply_parts if part).strip()
+
     _append_history(
         state,
         "trainer_history",
-        {"timestamp": timestamp, "user": payload.message, "assistant": reply, "topic": payload.topic},
+        {
+            "timestamp": timestamp,
+            "user": payload.message,
+            "assistant": combined_reply,
+            "topic": current_topic,
+            "step": updated_step if current_topic else None,
+        },
     )
-    state["current_role"] = "trainer"
-
-    # Update progress tracking
-    progress = _load_user_progress(payload.user_id)
-
-    if payload.topic:
-        if payload.mark_complete:
-            completed = training.setdefault("completed_topics", [])
-            if payload.topic not in completed:
-                completed.append(payload.topic)
-            training["in_progress_topic"] = None
-
-            # Update progress worksheet
-            if payload.topic not in progress["completed_topics"]:
-                progress["completed_topics"].append(payload.topic)
-            progress["last_activity"] = f"Completed training: {payload.topic}"
-            progress["last_task"] = "trainer"
-            _save_user_progress(payload.user_id, progress)
-        else:
-            training["in_progress_topic"] = payload.topic
-            progress["last_activity"] = f"Training in progress: {payload.topic}"
-            progress["last_task"] = "trainer"
-            _save_user_progress(payload.user_id, progress)
-    if payload.notes:
-        training["notes"] = payload.notes
 
     sanitized = _sanitize_state_for_storage(state)
     _save_user_state(payload.user_id, state, row)
 
     return AgentResponse(
-        reply=reply,
+        reply=combined_reply,
         state=sanitized,
-        metadata={"topic": payload.topic, "mark_complete": payload.mark_complete},
+        metadata=response_metadata,
     )
 
 
