@@ -228,6 +228,9 @@
         const recordingStartTimeRef = useRef(null);
         const silenceTimeoutRef = useRef(null);
         const speechDetectedRef = useRef(false);
+        const audioSentRef = useRef(false);
+        const lastPlaybackEndRef = useRef(0);
+        const assistantRespondingRef = useRef(false);
 
         const [trainerTopic, setTrainerTopic] = useState('');
         const [trainerMarkComplete, setTrainerMarkComplete] = useState(false);
@@ -319,19 +322,15 @@
           const initialMessages = {};
           ROLE_DEFS.forEach(role => { initialMessages[role.id] = []; });
           initialMessages.controller = [
-            { role: 'assistant', content: `Hi ${firstName}! Welcome back.` }
+            { role: 'assistant', content: `Hi ${firstName}! Welcome to Business & Mission Studio.\n\nClick one of the tabs above to get started:\n• Trainer - Learn theology and evangelism skills\n• Practicer - Practice conversations in realistic scenarios\n• Coach - Get feedback on your practice sessions` }
           ];
 
           resetSessionState(initialMessages);
           setActiveRole('controller');
 
+          // Just refresh state, don't call the agent
           (async () => {
             await refreshState(user.email);
-            await runAgentMessage(
-              'controller',
-              `${firstName} just started a new session and would like to decide what to do next. Please welcome them and offer training, practice, or coaching options.`,
-              { skipUserEcho: true }
-            );
           })();
         }, [user?.email]);
 
@@ -817,10 +816,30 @@
 
               // Send session update with instructions
               console.log('Sending session.update...');
+              const scenarioLabel = PRACTICE_SCENARIOS.find(s => s.value === practiceConfig.scenario)?.label || practiceConfig.scenario;
+              const difficultyLabel = LIGHT_OPTIONS.find(d => d.value === practiceConfig.difficulty)?.label || practiceConfig.difficulty;
+              const outcomeLabel = LIGHT_OPTIONS.find(o => o.value === practiceConfig.outcome)?.label || practiceConfig.outcome;
+
               ws.send(JSON.stringify({
                 type: 'session.update',
                 session: {
-                  instructions: `You are roleplaying as: ${practiceConfig.scenario}. Difficulty level: ${practiceConfig.difficulty}. Stay in character and respond naturally. Start the conversation by greeting the user and introducing yourself in character.`
+                  instructions: `You are a conversation simulator designed to help users practice talking about Christianity in everyday life. You are roleplaying as someone without faith and the user is trying to encourage you to discuss faith and spirituality.
+
+Scenario: ${scenarioLabel}
+Difficulty level: ${difficultyLabel}
+Target outcome: ${outcomeLabel}
+
+Stay in character and respond naturally as this person would. Start the conversation by greeting the user and introducing yourself in character. Be realistic in your responses - show curiosity, resistance, or openness based on the difficulty level. Remember, you are NOT a Christian and are exploring these topics with varying levels of interest depending on the difficulty setting.
+
+IMPORTANT: When the user says "End," or when the session naturally closes:
+1. Step out of character
+2. Switch into coach mode
+3. Give structured feedback covering:
+   - What went well in the conversation
+   - Areas for improvement
+   - Specific suggestions for next time
+   - How well they adapted to the difficulty level
+   - Overall assessment of their approach`
                 }
               }));
 
@@ -842,6 +861,13 @@
                 setPracticeAudioMode(false);
                 ws.close();
                 return;
+              }
+
+              // Track when assistant starts/stops responding
+              if (message.type === 'response.created' || message.type === 'response.audio.delta') {
+                assistantRespondingRef.current = true;
+              } else if (message.type === 'response.done') {
+                assistantRespondingRef.current = false;
               }
 
               if (message.type === 'response.audio.delta' && message.delta) {
@@ -905,7 +931,14 @@
               throw new Error('Microphone access is not available. Please use HTTPS or localhost.');
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Request audio with echo cancellation, noise suppression, and auto gain control
+            const stream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              }
+            });
             audioStreamRef.current = stream;
 
             const audioContext = new AudioContext({ sampleRate: 24000 });
@@ -929,20 +962,28 @@
               const volume = Math.max(0, Math.min(1, rms * 10)); // Normalize and boost
 
               // Voice Activity Detection threshold
-              const SPEECH_THRESHOLD = 0.02; // Adjust this value if needed (0.01-0.05 typical range)
+              const SPEECH_THRESHOLD = 0.05; // Increased from 0.02 - adjust if still too sensitive (0.01-0.10 typical range)
               const SILENCE_DURATION = 1500; // 1.5 seconds of silence before auto-send
+              const PLAYBACK_BUFFER = 500; // Wait 500ms after playback ends before detecting speech again
+              const MIN_RECORDING_DURATION = 300; // Minimum 300ms of continuous recording before allowing commit
 
-              const isSpeaking = volume > SPEECH_THRESHOLD;
+              // Don't detect speech while assistant is playing audio, responding, or shortly after
+              const timeSincePlayback = Date.now() - lastPlaybackEndRef.current;
+              const isSpeaking = volume > SPEECH_THRESHOLD &&
+                                !isPlayingRef.current &&
+                                !assistantRespondingRef.current &&
+                                timeSincePlayback > PLAYBACK_BUFFER;
 
               if (vadMode) {
                 // Automatic VAD mode
                 if (isSpeaking) {
                   // Start recording if not already
                   if (!isRecordingRef.current) {
-                    console.log('Speech detected, starting recording');
+                    console.log('✓ Speech detected, starting recording (volume:', volume.toFixed(3), ')');
                     isRecordingRef.current = true;
                     setIsRecording(true);
                     speechDetectedRef.current = true;
+                    audioSentRef.current = false;
                     recordingStartTimeRef.current = Date.now();
                   }
 
@@ -954,20 +995,26 @@
                 } else if (isRecordingRef.current && speechDetectedRef.current) {
                   // Detected silence while recording
                   if (!silenceTimeoutRef.current) {
+                    console.log('Silence detected, starting timer...');
                     // Start silence timer
                     silenceTimeoutRef.current = setTimeout(() => {
-                      // Auto-commit after silence
+                      // Auto-commit after silence - only if we actually sent audio
                       const recordingDuration = Date.now() - (recordingStartTimeRef.current || 0);
-                      console.log(`Auto-committing after ${SILENCE_DURATION}ms silence (total recording: ${recordingDuration}ms)`);
+                      console.log(`⏱️  Auto-commit timer fired: duration=${recordingDuration}ms, audioSent=${audioSentRef.current}, assistantResponding=${assistantRespondingRef.current}`);
 
-                      if (recordingDuration >= 200) {
+                      // Only commit if we sent actual audio data, recording was long enough, AND assistant is not currently responding
+                      if (recordingDuration >= MIN_RECORDING_DURATION && audioSentRef.current && !assistantRespondingRef.current) {
+                        console.log('✓ Committing audio buffer and requesting response');
                         ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
                         ws.send(JSON.stringify({ type: 'response.create' }));
+                      } else {
+                        console.log(`✗ Skipping commit - duration=${recordingDuration}ms, audioSent=${audioSentRef.current}, assistantResponding=${assistantRespondingRef.current}`);
                       }
 
                       isRecordingRef.current = false;
                       setIsRecording(false);
                       speechDetectedRef.current = false;
+                      audioSentRef.current = false;
                       recordingStartTimeRef.current = null;
                       silenceTimeoutRef.current = null;
                     }, SILENCE_DURATION);
@@ -986,6 +1033,8 @@
                   type: 'input_audio_buffer.append',
                   audio: base64
                 }));
+                // Mark that we've sent audio data
+                audioSentRef.current = true;
               }
             };
 
@@ -1017,9 +1066,10 @@
             setIsRecording(false);
             recordingStartTimeRef.current = null;
 
-            // Only commit if we have enough audio (200ms minimum to be safe)
-            if (recordingDuration < 200) {
-              console.log(`Recording too short (${recordingDuration}ms), not committing`);
+            // Only commit if we have enough audio and actually sent data (200ms minimum to be safe)
+            if (recordingDuration < 200 || !audioSentRef.current) {
+              console.log(`Recording too short (${recordingDuration}ms) or no audio sent, not committing`);
+              audioSentRef.current = false;
               return;
             }
 
@@ -1029,10 +1079,12 @@
             wsRef.current.send(JSON.stringify({
               type: 'response.create'
             }));
+            audioSentRef.current = false;
           } else {
             // Start recording
             isRecordingRef.current = true;
             setIsRecording(true);
+            audioSentRef.current = false;
             recordingStartTimeRef.current = Date.now();
           }
         }
@@ -1059,7 +1111,10 @@
 
           isRecordingRef.current = false;
           speechDetectedRef.current = false;
+          audioSentRef.current = false;
           recordingStartTimeRef.current = null;
+          lastPlaybackEndRef.current = 0;
+          assistantRespondingRef.current = false;
         }
 
         async function playAudioQueue() {
@@ -1096,6 +1151,8 @@
           }
 
           isPlayingRef.current = false;
+          // Mark when playback ended to add buffer time
+          lastPlaybackEndRef.current = Date.now();
         }
 
         function stopRealtimeSession() {
@@ -1349,7 +1406,7 @@
                     <div style={{ fontSize: '14px', color: '#64748b', flex: 1 }}>
                       {audioStatus === 'connecting' ? 'Setting up audio connection...' :
                        isRecording ? 'Speaking detected - will auto-send after you stop' :
-                       audioStatus === 'ready' ? 'Listening for your voice - just start talking!' :
+                       audioStatus === 'ready' ? 'Listening for your voice - just start talking! Say "End" when finished to get feedback.' :
                        'Waiting for connection...'}
                     </div>
                   </div>
@@ -1392,7 +1449,7 @@
                     </button>
                     <div style={{ fontSize: '14px', color: '#64748b' }}>
                       {audioStatus === 'ready' && isRecording ? 'Release to send your message' :
-                       audioStatus === 'ready' ? 'Hold the button and speak - release when done' :
+                       audioStatus === 'ready' ? 'Hold the button and speak - release when done. Say "End" to get feedback.' :
                        audioStatus === 'connecting' ? 'Setting up audio connection...' :
                        'Waiting for connection...'}
                     </div>
