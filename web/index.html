@@ -216,6 +216,7 @@
         const [realtimeSession, setRealtimeSession] = useState(null);
         const [isRecording, setIsRecording] = useState(false);
         const [audioStatus, setAudioStatus] = useState('inactive'); // inactive, connecting, ready, recording
+        const [vadMode, setVadMode] = useState(true); // Voice Activity Detection mode (always on by default)
 
         const wsRef = useRef(null);
         const audioContextRef = useRef(null);
@@ -225,6 +226,8 @@
         const isPlayingRef = useRef(false);
         const isRecordingRef = useRef(false);
         const recordingStartTimeRef = useRef(null);
+        const silenceTimeoutRef = useRef(null);
+        const speechDetectedRef = useRef(false);
 
         const [trainerTopic, setTrainerTopic] = useState('');
         const [trainerMarkComplete, setTrainerMarkComplete] = useState(false);
@@ -913,8 +916,67 @@
             processorRef.current = processor;
 
             processor.onaudioprocess = (e) => {
-              if (ws.readyState === WebSocket.OPEN && isRecordingRef.current) {
-                const inputData = e.inputBuffer.getChannelData(0);
+              if (ws.readyState !== WebSocket.OPEN) return;
+
+              const inputData = e.inputBuffer.getChannelData(0);
+
+              // Calculate volume level for VAD
+              let sum = 0;
+              for (let i = 0; i < inputData.length; i++) {
+                sum += inputData[i] * inputData[i];
+              }
+              const rms = Math.sqrt(sum / inputData.length);
+              const volume = Math.max(0, Math.min(1, rms * 10)); // Normalize and boost
+
+              // Voice Activity Detection threshold
+              const SPEECH_THRESHOLD = 0.02; // Adjust this value if needed (0.01-0.05 typical range)
+              const SILENCE_DURATION = 1500; // 1.5 seconds of silence before auto-send
+
+              const isSpeaking = volume > SPEECH_THRESHOLD;
+
+              if (vadMode) {
+                // Automatic VAD mode
+                if (isSpeaking) {
+                  // Start recording if not already
+                  if (!isRecordingRef.current) {
+                    console.log('Speech detected, starting recording');
+                    isRecordingRef.current = true;
+                    setIsRecording(true);
+                    speechDetectedRef.current = true;
+                    recordingStartTimeRef.current = Date.now();
+                  }
+
+                  // Clear any silence timeout
+                  if (silenceTimeoutRef.current) {
+                    clearTimeout(silenceTimeoutRef.current);
+                    silenceTimeoutRef.current = null;
+                  }
+                } else if (isRecordingRef.current && speechDetectedRef.current) {
+                  // Detected silence while recording
+                  if (!silenceTimeoutRef.current) {
+                    // Start silence timer
+                    silenceTimeoutRef.current = setTimeout(() => {
+                      // Auto-commit after silence
+                      const recordingDuration = Date.now() - (recordingStartTimeRef.current || 0);
+                      console.log(`Auto-committing after ${SILENCE_DURATION}ms silence (total recording: ${recordingDuration}ms)`);
+
+                      if (recordingDuration >= 200) {
+                        ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+                        ws.send(JSON.stringify({ type: 'response.create' }));
+                      }
+
+                      isRecordingRef.current = false;
+                      setIsRecording(false);
+                      speechDetectedRef.current = false;
+                      recordingStartTimeRef.current = null;
+                      silenceTimeoutRef.current = null;
+                    }, SILENCE_DURATION);
+                  }
+                }
+              }
+
+              // Send audio data when recording (both VAD and manual modes)
+              if (isRecordingRef.current) {
                 const pcm16 = new Int16Array(inputData.length);
                 for (let i = 0; i < inputData.length; i++) {
                   pcm16[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32768)));
@@ -929,6 +991,12 @@
 
             source.connect(processor);
             processor.connect(audioContext.destination);
+
+            // Start in recording mode if VAD is enabled
+            if (vadMode) {
+              isRecordingRef.current = false; // Will be set to true when speech detected
+              setIsRecording(false);
+            }
           } catch (err) {
             console.error('Failed to start audio capture:', err);
             throw err;
@@ -970,6 +1038,12 @@
         }
 
         function stopAudioCapture() {
+          // Clear any pending silence timeout
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current);
+            silenceTimeoutRef.current = null;
+          }
+
           if (processorRef.current) {
             processorRef.current.disconnect();
             processorRef.current = null;
@@ -982,6 +1056,10 @@
             audioContextRef.current.close();
             audioContextRef.current = null;
           }
+
+          isRecordingRef.current = false;
+          speechDetectedRef.current = false;
+          recordingStartTimeRef.current = null;
         }
 
         async function playAudioQueue() {
@@ -1090,6 +1168,16 @@
                   />
                   Audio mode (realtime voice chat)
                 </label>
+                {practiceAudioMode && (
+                  <label className="rememberRow">
+                    <input
+                      type="checkbox"
+                      checked={vadMode}
+                      onChange={e => setVadMode(e.target.checked)}
+                    />
+                    Auto-detect voice (recommended)
+                  </label>
+                )}
                 <label className="rememberRow">
                   <input
                     type="checkbox"
@@ -1243,46 +1331,73 @@
             </div>
             {activeRole === 'practicer' && practiceAudioMode ? (
               <div className="audioControls">
-                <button
-                  className={`recordButton ${audioStatus === 'connecting' ? 'connecting' : isRecording ? 'recording' : 'inactive'}`}
-                  disabled={audioStatus === 'inactive' || audioStatus === 'connecting'}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    if (audioStatus === 'ready' && !isRecording) {
-                      isRecordingRef.current = true;
-                      setIsRecording(true);
-                      recordingStartTimeRef.current = Date.now();
-                    }
-                  }}
-                  onMouseUp={(e) => {
-                    e.preventDefault();
-                    if (audioStatus === 'ready' && isRecording) {
-                      toggleRecording();
-                    }
-                  }}
-                  onTouchStart={(e) => {
-                    e.preventDefault();
-                    if (audioStatus === 'ready' && !isRecording) {
-                      isRecordingRef.current = true;
-                      setIsRecording(true);
-                      recordingStartTimeRef.current = Date.now();
-                    }
-                  }}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    if (audioStatus === 'ready' && isRecording) {
-                      toggleRecording();
-                    }
-                  }}
-                >
-                  {audioStatus === 'connecting' ? 'Connecting...' : isRecording ? '🎤 Recording...' : '🎤 Hold to Talk'}
-                </button>
-                <div style={{ fontSize: '14px', color: '#64748b' }}>
-                  {audioStatus === 'ready' && isRecording ? 'Release to send your message' :
-                   audioStatus === 'ready' ? 'Hold the button and speak - release when done' :
-                   audioStatus === 'connecting' ? 'Setting up audio connection...' :
-                   'Waiting for connection...'}
-                </div>
+                {vadMode ? (
+                  // Voice Activity Detection mode - shows status only
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
+                    <div style={{
+                      padding: '12px 24px',
+                      borderRadius: '12px',
+                      fontWeight: '600',
+                      background: audioStatus === 'connecting' ? '#fbbf24' :
+                                 isRecording ? '#dc2626' : '#10b981',
+                      color: 'white',
+                      animation: isRecording ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                    }}>
+                      {audioStatus === 'connecting' ? '⏳ Connecting...' :
+                       isRecording ? '🎤 Recording...' : '👂 Listening...'}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#64748b', flex: 1 }}>
+                      {audioStatus === 'connecting' ? 'Setting up audio connection...' :
+                       isRecording ? 'Speaking detected - will auto-send after you stop' :
+                       audioStatus === 'ready' ? 'Listening for your voice - just start talking!' :
+                       'Waiting for connection...'}
+                    </div>
+                  </div>
+                ) : (
+                  // Manual push-to-talk mode
+                  <>
+                    <button
+                      className={`recordButton ${audioStatus === 'connecting' ? 'connecting' : isRecording ? 'recording' : 'inactive'}`}
+                      disabled={audioStatus === 'inactive' || audioStatus === 'connecting'}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        if (audioStatus === 'ready' && !isRecording) {
+                          isRecordingRef.current = true;
+                          setIsRecording(true);
+                          recordingStartTimeRef.current = Date.now();
+                        }
+                      }}
+                      onMouseUp={(e) => {
+                        e.preventDefault();
+                        if (audioStatus === 'ready' && isRecording) {
+                          toggleRecording();
+                        }
+                      }}
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        if (audioStatus === 'ready' && !isRecording) {
+                          isRecordingRef.current = true;
+                          setIsRecording(true);
+                          recordingStartTimeRef.current = Date.now();
+                        }
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        if (audioStatus === 'ready' && isRecording) {
+                          toggleRecording();
+                        }
+                      }}
+                    >
+                      {audioStatus === 'connecting' ? 'Connecting...' : isRecording ? '🎤 Recording...' : '🎤 Hold to Talk'}
+                    </button>
+                    <div style={{ fontSize: '14px', color: '#64748b' }}>
+                      {audioStatus === 'ready' && isRecording ? 'Release to send your message' :
+                       audioStatus === 'ready' ? 'Hold the button and speak - release when done' :
+                       audioStatus === 'connecting' ? 'Setting up audio connection...' :
+                       'Waiting for connection...'}
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="inputBar">
